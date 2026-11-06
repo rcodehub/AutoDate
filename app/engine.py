@@ -8,6 +8,7 @@ Reads the dates of the files inside archives (unrar / 7z / tar, never extracting
 "YYYY-MM-DD HH:MM:SS" (None = unknown).
 """
 import contextlib
+import errno
 import datetime
 import fnmatch
 import json
@@ -42,6 +43,8 @@ FUTURE_SLACK = 120                 # seconds a file date may be ahead of the clo
 MAX_REMEMBERED = 5000              # entries kept in each "remembered archives" file
 MAX_ENTRIES = 20000                # entries kept per archive in the index (the rest are only counted: "truncated")
 DIR_MODE, FILE_MODE = 0o777, 0o666   # best effort on folders / files the app creates or moves (shares are used over SMB)
+_NO_LINK_ERRNOS = {errno.EPERM, errno.EXDEV, errno.ENOTSUP, errno.EMLINK, errno.ENOSYS, errno.EOPNOTSUPP,
+                   getattr(errno, "EACCES", 13)}   # hard links not supported here (e.g. some shfs / SMB setups)
 ACTION_MAX_PATHS = 5000            # most archive paths one action request may name
 
 
@@ -353,6 +356,7 @@ class Engine:
     def __init__(self, log_dir, history_path):
         self.lock = threading.RLock()
         self.move_lock = threading.Lock()
+        self._rename_stuck = False
         self.cancel_file_lock = threading.Lock()
         self.index_lock = threading.RLock()
         self.index_save_lock = threading.Lock()   # one index writer at a time (the index lock is not held while writing)
@@ -645,6 +649,7 @@ class Engine:
             else:
                 if not oneoff:
                     self._drop_vanished(sources)
+                    self._drop_unconfigured(cfg)
             self.index_save()
         except Exception as e:  # noqa: BLE001 - report any failure to the UI
             result, message = "error", str(e)
@@ -1240,6 +1245,17 @@ class Engine:
                 self._index_dirty = True
         return n
 
+    def _drop_unconfigured(self, cfg):
+        """End of a full scan: forget records that are inside none of the configured sources (a source that was
+        removed from Settings). A source that is only missing right now (unmounted) is still configured."""
+        roots = [os.path.realpath(s).rstrip(os.sep) + os.sep for s in cfg.get("sources", []) if s]
+        if not roots:
+            return
+        gone = [p for p in list(self.index_load()) if not any(p.startswith(r) for r in roots)]
+        if gone:
+            n = self.index_drop(gone)
+            self.log("info", f"Removed {n} archive(s) from the index that are in no configured source folder")
+
     def _drop_vanished(self, sources):
         """End of a full scan: forget archives that are no longer in the scanned sources."""
         with self.lock:
@@ -1402,15 +1418,9 @@ class Engine:
         if mode == "delete":
             return None
         if mode == "recycle":
-            parent, why = mounts.recycle_target(src, self._mounts)
-            if why:
-                raise RuntimeError(f"Recycle Bin not usable: {why}")
-            dest = os.path.join(parent, os.path.basename(src))
+            dest = self._recycle_dest(src)
         elif mode == "move":
-            if not cfg.get("move_dir"):
-                raise RuntimeError("no move folder is set")
-            base = os.path.basename(root.rstrip(os.sep)) or "root"
-            dest = os.path.join(cfg["move_dir"], base, os.path.relpath(src, root))
+            dest = self._move_dest(src, root, cfg)
         else:
             raise RuntimeError(f"unknown delete mode {mode!r}")
         if os.path.exists(dest) or dest in taken:
@@ -1419,6 +1429,35 @@ class Engine:
                 n += 1
             dest = f"{dest}.{n}"
         return dest
+
+    @staticmethod
+    def _real_file(path):
+        """The file with its folder resolved (symlinks in the folders), the file name itself untouched."""
+        return os.path.join(os.path.realpath(os.path.dirname(path)), os.path.basename(path))
+
+    def _move_dest(self, src, root, cfg):
+        """move_dir/<source folder name>/<path inside the source>; RuntimeError when that would leave the move
+        folder (source reached through a symlink, odd paths)."""
+        if not cfg.get("move_dir"):
+            raise RuntimeError("no move folder is set")
+        real_root = os.path.realpath(root)
+        rel = os.path.relpath(self._real_file(src), real_root)
+        if rel == os.pardir or rel.startswith(os.pardir + os.sep) or os.path.isabs(rel):
+            raise RuntimeError("the archive is not inside its source folder - not moved")
+        base = os.path.basename(real_root.rstrip(os.sep)) or "root"
+        top = os.path.normpath(cfg["move_dir"])
+        dest = os.path.normpath(os.path.join(top, base, rel))
+        if not dest.startswith(top.rstrip(os.sep) + os.sep):
+            raise RuntimeError("the target would be outside the move folder - not moved")
+        return dest
+
+    def _recycle_dest(self, src):
+        parent, why = mounts.recycle_target(self._real_file(src), self._mounts)
+        if why:
+            raise RuntimeError(f"Recycle Bin not usable: {why}")
+        if os.pardir in parent.split(os.sep):
+            raise RuntimeError("the Recycle Bin target would be outside the Recycle Bin - not moved")
+        return os.path.join(parent, os.path.basename(src))
 
     def _volume_bytes(self, vols):
         n = 0
@@ -1429,9 +1468,11 @@ class Engine:
                 pass
         return n
 
-    def delete_archives(self, paths, cfg, preview=True):
+    def delete_archives(self, paths, cfg, preview=True, expect=None):
         """Dispose the WHOLE volume set of every archive per cfg["delete_mode"] (recycle | move | delete).
-        preview=True changes nothing and reports where each would go."""
+        preview=True changes nothing and reports where each would go and returns "expect" ({path: target}).
+        A real run with `expect` only does what that preview showed: an archive whose planned target is now
+        different is refused."""
         mode = cfg.get("delete_mode", "recycle")
         started = time.time()
         with self._action(preview) as busy:
@@ -1441,7 +1482,7 @@ class Engine:
             ok_paths, refused = self.check_action_paths(paths, cfg)
             results = [dict(r, action=mode, bytes=0) for r in refused]
             for p in ok_paths:
-                results.append(self._delete_one(p, cfg, mode, preview))
+                results.append(self._delete_one(p, cfg, mode, preview, expect))
             results = self._ordered(paths if isinstance(paths, list) else [], results)
             done = [r for r in results if r["ok"]]
             total = sum(r["bytes"] for r in done)
@@ -1450,9 +1491,12 @@ class Engine:
                 self.add_action_history("delete", results, total, started)
                 self.log("info", f"Delete: {len(done)} archive(s), {_human(total)} ({self._act_text(mode, cfg)})"
                          + (f"; {len(results) - len(done)} refused / failed" if len(done) != len(results) else ""))
-            return {"results": results, "count": len(done), "bytes": total, "preview": preview, "mode": mode}
+            out = {"results": results, "count": len(done), "bytes": total, "preview": preview, "mode": mode}
+            if preview:
+                out["expect"] = {r["path"]: r["target"] for r in done}
+            return out
 
-    def _delete_one(self, path, cfg, mode, preview):
+    def _delete_one(self, path, cfg, mode, preview, expect=None):
         vols = self._archive_group(path)
         res = {"path": path, "ok": False, "action": mode, "bytes": self._volume_bytes(vols), "volumes": len(vols)}
         root = self._root_for(path, cfg)
@@ -1467,6 +1511,9 @@ class Engine:
             res["reason"] = str(e)
             return res
         first = plan[0][1]
+        if not preview and expect is not None and expect.get(path) != (first or "deleted permanently"):
+            res["reason"] = "settings or names changed since the preview - preview again"
+            return res
         if preview:
             res.update(ok=True, target=first or "deleted permanently")
             return res
@@ -1504,10 +1551,29 @@ class Engine:
 
     # ---- rename
     def _rename_file(self, old, new):
-        """Rename one file, never replacing something that exists."""
+        """Rename one file, never replacing something that exists. A hard link is created first (it fails when the
+        target appeared meanwhile, unlike rename); where links are not supported the plain check + rename is used."""
         if os.path.lexists(new):
             raise OSError(f"{os.path.basename(new)} already exists")
-        os.rename(old, new)
+        try:
+            os.link(old, new, follow_symlinks=False)
+        except FileExistsError:
+            raise OSError(f"{os.path.basename(new)} already exists") from None
+        except (OSError, NotImplementedError) as e:
+            if isinstance(e, OSError) and e.errno not in _NO_LINK_ERRNOS:
+                raise
+            if os.path.lexists(new):
+                raise OSError(f"{os.path.basename(new)} already exists") from None
+            os.rename(old, new)
+            return
+        try:
+            os.unlink(old)
+        except OSError:
+            try:
+                os.unlink(new)
+            except OSError:
+                pass
+            raise
 
     def _plan_rename(self, path, rec, use, cfg):
         """(year, [(old, new), ...]) or raises ValueError(reason)."""
@@ -1537,9 +1603,10 @@ class Engine:
                 raise ValueError(f"a file named {os.path.basename(n)} already exists")
         return year, pairs
 
-    def rename_archives(self, paths, use, cfg, preview=True):
+    def rename_archives(self, paths, use, cfg, preview=True, expect=None):
         """Append the content year ("name (YYYY).ext"; use = "newest" | "oldest") to every volume of each set,
-        all-or-nothing per set with rollback; preview=True changes nothing."""
+        all-or-nothing per set with rollback; preview=True changes nothing and returns "expect" ({path: new path}); a
+        real run with `expect` refuses an archive whose planned new name differs from the preview."""
         use = use or cfg.get("rename_use", "newest")
         started = time.time()
         with self._action(preview) as busy:
@@ -1562,6 +1629,10 @@ class Engine:
                     res["reason"] = str(e)
                     results.append(res)
                     continue
+                if not preview and expect is not None and expect.get(p) != pairs[0][1]:
+                    res["reason"] = "settings or names changed since the preview - preview again"
+                    results.append(res)
+                    continue
                 targets.update(n for _o, n in pairs)
                 res.update(year=year, new_path=pairs[0][1], renamed=[[o, n] for o, n in pairs])
                 if preview:
@@ -1571,6 +1642,8 @@ class Engine:
                     if err:
                         res.update(new_path=None, reason=err)
                         res.pop("renamed")
+                        if self._rename_stuck:        # volumes left under mixed names: the index entry is wrong now
+                            self.index_drop([p])
                     else:
                         res["ok"] = True
                         self._move_index_entry(rec, pairs)
@@ -1584,11 +1657,15 @@ class Engine:
                 if done:
                     self.stats.renamed(len(done))
                 self.add_action_history("rename", results, moved_bytes, started)
-            return {"results": results, "count": len(done), "preview": preview}
+            out = {"results": results, "count": len(done), "preview": preview}
+            if preview:
+                out["expect"] = {r["path"]: r["new_path"] for r in done}
+            return out
 
     def _do_rename(self, pairs):
         """Rename all volumes; on a failure rename the done ones back. Returns an error text or ""."""
         done = []
+        self._rename_stuck = False
         try:
             for o, n in pairs:
                 self._rename_file(o, n)
@@ -1600,6 +1677,7 @@ class Engine:
                     self._rename_file(n, o)
                 except OSError as e2:
                     bad.append(f"{os.path.basename(n)}: {e2}")
+                    self._rename_stuck = True
             self.log("warn", f"Rename failed ({e})" + (f"; could not restore: {bad}" if bad else "; all restored"))
             return (f"could not rename {os.path.basename(o)}: {e}" +
                     ("; all volumes were put back" if not bad else f"; NOT restored: {'; '.join(bad)}"))
@@ -1787,10 +1865,8 @@ class Engine:
     def _recycle(self, src, cfg):
         """Move into <share>/.Recycle.Bin/<path inside the share>, where the Unraid Recycle Bin plugin keeps
         files deleted over SMB (so they are listed and emptied by the plugin)."""
-        parent, why = mounts.recycle_target(src, self._mounts)
-        if why:
-            raise RuntimeError(f"Recycle Bin not usable: {why}")
-        dest = os.path.join(parent, os.path.basename(src))
+        dest = self._recycle_dest(src)
+        parent = os.path.dirname(dest)
         with self.move_lock:
             missing, p = [], parent
             while not os.path.isdir(p):
@@ -1810,8 +1886,7 @@ class Engine:
 
     def _move(self, src, root, cfg):
         """Move into move_dir/<source folder name>/<path relative to source>."""
-        base = os.path.basename(root.rstrip(os.sep)) or "root"
-        dest = os.path.join(cfg["move_dir"], base, os.path.relpath(src, root))
+        dest = self._move_dest(src, root, cfg)
         with self.move_lock:
             missing, p = [], os.path.dirname(dest)
             while not os.path.isdir(p):

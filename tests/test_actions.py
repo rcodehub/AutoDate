@@ -360,6 +360,139 @@ check("failed move puts the earlier volumes back", not res["results"][0]["ok"] a
 res = eng.delete_archives([P("zz.zip"), P("single", "one (2014).zip"), P("zz.zip")], cfg_for(), preview=True)
 check("results follow the request order, duplicates once", [r["path"] for r in res["results"]] == [P("zz.zip"), P("single", "one (2014).zip")], res)
 
+# --- preview and confirm are tied: a real run only does what the preview showed
+d = fresh("tied")
+sh(["zip", "-q", os.path.join(d, "t1.zip"), "old.bin", "new.bin"])
+sh(["zip", "-q", os.path.join(d, "t2.zip"), "old.bin", "new.bin"])
+sh(["zip", "-q", os.path.join(d, "t3.zip"), "old.bin", "new.bin"])
+age(d)
+scan()
+T = lambda n: P("tied", n)
+pv = eng.delete_archives([T("t1.zip")], cfg_for(delete_mode="move"), preview=True)
+ex = pv["expect"]
+check("delete preview returns expect {path: target}", ex == {T("t1.zip"): pv["results"][0]["target"]} and pv["results"][0]["target"].startswith(trash), pv)
+res = eng.delete_archives([T("t1.zip")], cfg_for(delete_mode="delete"), preview=False, expect=ex)["results"][0]
+check("delete: mode changed after the preview (move -> permanent) is refused, file untouched",
+      not res["ok"] and "preview again" in res["reason"] and os.path.isfile(T("t1.zip")), res)
+other_trash = os.path.join(work, "trash2")
+os.makedirs(other_trash)
+res = eng.delete_archives([T("t1.zip")], cfg_for(delete_mode="move", move_dir=other_trash), preview=False, expect=ex)["results"][0]
+check("delete: move folder changed after the preview is refused", not res["ok"] and os.path.isfile(T("t1.zip")) and names(other_trash) == [], res)
+res = eng.delete_archives([T("t1.zip"), T("t2.zip")], cfg_for(delete_mode="move"), preview=False, expect=ex)["results"]
+check("delete: same settings -> done; an archive missing from expect is refused",
+      res[0]["ok"] and not os.path.exists(T("t1.zip")) and not res[1]["ok"] and "preview again" in res[1]["reason"] and os.path.isfile(T("t2.zip")), res)
+pv = rename([T("t2.zip")], "newest", preview=True)
+check("rename preview returns expect {path: new path}", pv["expect"] == {T("t2.zip"): T("t2 (2014).zip")}, pv.get("expect"))
+res = eng.rename_archives([T("t2.zip")], "oldest", cfg_for(), preview=False, expect=pv["expect"])["results"][0]
+check("rename: another year than previewed is refused", not res["ok"] and "preview again" in res["reason"] and os.path.isfile(T("t2.zip")), res)
+res = eng.rename_archives([T("t2.zip")], "newest", cfg_for(), preview=False, expect=pv["expect"])["results"][0]
+check("rename: as previewed -> done", res["ok"] and os.path.isfile(T("t2 (2014).zip")), res)
+
+# --- a rename never replaces a file that appears between the check and the rename
+a, b = T("t3.zip"), T("t3 (2014).zip")
+real_lexists = os.path.lexists
+raced = []
+
+
+def racing_lexists(path):
+    r = real_lexists(path)
+    if path == b and not raced:
+        raced.append(1)
+        with open(b, "wb") as f:                     # somebody creates the target right after the check
+            f.write(b"precious")
+    return r
+
+
+E.os.path.lexists = racing_lexists
+try:
+    err = None
+    try:
+        eng._rename_file(a, b)
+    except OSError as e:
+        err = str(e)
+finally:
+    E.os.path.lexists = real_lexists
+check("rename: target created in the race window is not replaced", err and "already exists" in err and open(b, "rb").read() == b"precious"
+      and os.path.isfile(a), err)
+os.remove(b)
+eng._rename_file(a, b)
+check("rename: plain rename works (link + unlink)", os.path.isfile(b) and not os.path.exists(a))
+real_link = E.os.link
+E.os.link = lambda *a_, **k: (_ for _ in ()).throw(OSError(E.errno.EPERM, "links not supported"))
+try:
+    eng._rename_file(b, a)
+finally:
+    E.os.link = real_link
+check("rename: falls back to rename where hard links are not supported", os.path.isfile(a) and not os.path.exists(b))
+
+# --- the move folder cannot be escaped when the source is reached through a symlink
+real_src = os.path.join(work, "realsrc")
+os.makedirs(os.path.join(real_src, "sub"))
+link = os.path.join(work, "linksrc")
+os.symlink(real_src, link)
+with zipfile.ZipFile(os.path.join(real_src, "sub", "l.zip"), "w") as zf:
+    zf.writestr(zipfile.ZipInfo("x", (2001, 1, 1, 0, 0, 0)), "x")
+age(os.path.join(real_src, "sub"))
+E.mounts.list_mounts = lambda config_dir="/data": [{"path": p, "config": False, "writable": True} for p in (src, trash, link)]
+eng._refresh_mounts()
+lc = cfg_for(sources=[link])
+lp = os.path.join(link, "sub", "l.zip")          # an index record that kept the unresolved path
+eng.index_put(E.blank_record(lp, [lp], eng._signature(lp)) | {"newest": "2001-01-01 00:00:00", "oldest": "2001-01-01 00:00:00"})
+pv = eng.delete_archives([lp], lc, preview=True)["results"][0]
+check("move via a symlinked source stays inside the move folder", pv["ok"] and pv["target"] == os.path.join(trash, "realsrc", "sub", "l.zip"), pv)
+res = eng.delete_archives([lp], lc, preview=False)["results"][0]
+check("move via a symlinked source: moved to the right place", res["ok"] and os.path.isfile(os.path.join(trash, "realsrc", "sub", "l.zip")), res)
+try:
+    eng._move_dest(os.path.join(other, "o.zip"), real_src, lc)
+    esc = False
+except RuntimeError:
+    esc = True
+check("a file that is not inside its source folder is refused (no ../ escape)", esc)
+saved_rt = E.mounts.recycle_target
+E.mounts.recycle_target = lambda p, m: (os.path.join(share, ".Recycle.Bin", "..", "..", "evil"), "")
+try:
+    eng._recycle_dest(os.path.join(src, "x.zip"))
+    esc = False
+except RuntimeError:
+    esc = True
+E.mounts.recycle_target = saved_rt
+check("Recycle Bin target that leaves the bin is refused", esc)
+
+# --- failed rollback: the index does not point at files that no longer exist
+d = fresh("stuck")
+sh(["rar", "a", "-ma5", "-idq", "-v20k", os.path.join(d, "st.rar"), "old.bin", "new.bin"])
+age(d)
+scan()
+first = P("stuck", "st.part1.rar")
+real_rename = eng._rename_file
+cnt = []
+
+
+def very_flaky(old, new):
+    cnt.append(old)
+    if len(cnt) == 3 or new.endswith(os.sep + "st.part1.rar"):
+        raise OSError("disk says no")
+    return real_rename(old, new)
+
+
+eng._rename_file = very_flaky
+res = rename([first])["results"][0]
+eng._rename_file = real_rename
+idx_now = eng.index_load()
+check("failed rollback: reason kept, index no longer lists missing files",
+      not res["ok"] and "NOT restored" in res["reason"] and all(os.path.exists(v) for r_ in idx_now.values() for v in r_.get("volumes", [r_["path"]])
+                                                                if r_["path"].startswith(P("stuck"))), (res, sorted(idx_now)[:3]))
+
+# --- records of a source removed from Settings are dropped by the next full scan
+gone_dir = fresh("removed-source")
+shutil.copy(P("tied", "t2 (2014).zip"), os.path.join(gone_dir, "g.zip"))
+age(gone_dir)
+scan(cfg_for(sources=[src]))
+check("record of a configured source is there", eng.index_get(os.path.join(gone_dir, "g.zip")) is not None)
+keep_dir = P("tied")
+scan(cfg_for(sources=[keep_dir]))
+check("full scan drops records outside every configured source", eng.index_get(os.path.join(gone_dir, "g.zip")) is None
+      and eng.index_get(T("t2 (2014).zip")) is not None)
 shutil.rmtree(work, ignore_errors=True)
 print("\nALL PASSED" if not FAILS else f"\nFAILED: {FAILS}")
 sys.exit(1 if FAILS else 0)

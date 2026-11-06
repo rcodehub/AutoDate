@@ -26,6 +26,8 @@ engine_mod = importlib.import_module("engine")
 
 # --- fake engine: records the calls
 calls = []
+EXPECTS = []
+EX = {"/downloads/a.rar": "/t"}
 INDEX = {"/downloads/a.rar": {"path": "/downloads/a.rar", "entries": [{"name": "x", "folder": False, "size": 1, "date": 1.0}]}}
 
 
@@ -37,10 +39,10 @@ def fake_query(**kw):
 
 main.engine.index_query = lambda **kw: fake_query(**kw)
 main.engine.index_get = lambda path: INDEX.get(path)
-main.engine.delete_archives = lambda paths, cfg, preview=True: (
-    calls.append(("delete", paths, preview)) or {"results": [{"path": p, "ok": True, "action": "recycle", "target": "/t", "bytes": 1} for p in paths], "count": len(paths), "bytes": len(paths)})
-main.engine.rename_archives = lambda paths, use, cfg, preview=True: (
-    calls.append(("rename", paths, use, preview)) or {"results": [{"path": p, "ok": True, "new_path": p + "2", "renamed": [[p, p + "2"]], "year": 2016} for p in paths], "count": len(paths)})
+main.engine.delete_archives = lambda paths, cfg, preview=True, expect=None: (
+    EXPECTS.append(expect) or calls.append(("delete", paths, preview)) or {"results": [{"path": p, "ok": True, "action": "recycle", "target": "/t", "bytes": 1} for p in paths], "count": len(paths), "bytes": len(paths)})
+main.engine.rename_archives = lambda paths, use, cfg, preview=True, expect=None: (
+    EXPECTS.append(expect) or calls.append(("rename", paths, use, preview)) or {"results": [{"path": p, "ok": True, "new_path": p + "2", "renamed": [[p, p + "2"]], "year": 2016} for p in paths], "count": len(paths)})
 main.engine.rescan = lambda paths, cfg: (calls.append(("rescan", paths)) or {"results": [{"path": p, "ok": True} for p in paths]})
 
 ROUTES_GET = ("/api/archives", "/api/archive?path=/downloads/a.rar")
@@ -111,20 +113,35 @@ r = c.post("/api/archives/delete", json={"paths": good})
 check("delete: preview is the default (safe)", r.status_code == 200 and calls[-1] == ("delete", good, True) and r.get_json()["preview"] is True, calls)
 r = c.post("/api/archives/delete", json={"paths": good, "preview": True})
 check("delete: preview true", calls[-1][2] is True and r.get_json()["results"][0]["target"] == "/t")
-r = c.post("/api/archives/delete", json={"paths": good, "preview": False})
+r = c.post("/api/archives/delete", json={"paths": good, "preview": False, "expect": EX})
 check("delete: preview false does the real thing", r.status_code == 200 and calls[-1] == ("delete", good, False) and r.get_json()["preview"] is False, calls[-1])
 for bad in ("false", "0", 0, 1, None, "no"):
     n = len(calls)
-    r = c.post("/api/archives/delete", json={"paths": good, "preview": bad})
+    r = c.post("/api/archives/delete", json={"paths": good, "expect": EX, "preview": bad})
     check(f"delete: preview={bad!r} (not a boolean) -> 400, nothing deleted", r.status_code == 400 and len(calls) == n, (r.status_code, calls[n:]))
 r = c.post("/api/archives/delete", json={"paths": good + good + ["/downloads/b.rar"], "preview": True})
 check("delete: duplicate paths are dropped", calls[-1][1] == ["/downloads/a.rar", "/downloads/b.rar"], calls[-1])
 
+# a real run needs the expect of the preview that was shown
+for url, extra in (("/api/archives/delete", {}), ("/api/archives/rename", {"use": "newest"})):
+    for name, ex in (("missing", None), ("a list", ["x"]), ("a string", "x"), ("non-string target", {"/downloads/a.rar": 5}), ("null", None)):
+        n = len(calls)
+        body = dict(extra, paths=good, preview=False)
+        if name != "missing":
+            body["expect"] = ex
+        r = c.post(url, json=body)
+        check(f"{url}: real run with expect {name} -> 400, engine untouched", r.status_code == 400 and "expect" in r.get_json()["error"] and len(calls) == n, (r.status_code, calls[n:]))
+    n = len(calls)
+    r = c.post(url, json=dict(extra, paths=good, preview=True))
+    check(f"{url}: preview needs no expect and passes none", r.status_code == 200 and EXPECTS[-1] is None)
+    r = c.post(url, json=dict(extra, paths=good, preview=False, expect=EX))
+    check(f"{url}: expect is handed to the engine", r.status_code == 200 and EXPECTS[-1] == EX, EXPECTS[-1])
+
 r = c.post("/api/archives/rename", json={"paths": good, "use": "oldest"})
 check("rename: preview by default", r.status_code == 200 and calls[-1] == ("rename", good, "oldest", True), calls[-1])
-r = c.post("/api/archives/rename", json={"paths": good, "use": "newest", "preview": False})
+r = c.post("/api/archives/rename", json={"paths": good, "use": "newest", "preview": False, "expect": EX})
 check("rename: real run", calls[-1] == ("rename", good, "newest", False) and r.get_json()["results"][0]["new_path"] == "/downloads/a.rar2")
-r = c.post("/api/archives/rename", json={"paths": good, "preview": False})
+r = c.post("/api/archives/rename", json={"paths": good, "preview": False, "expect": EX})
 check("rename: use defaults to the setting (newest)", calls[-1][2] == "newest", calls[-1])
 import settings as _s  # noqa: E402
 cur = _s.load()
@@ -134,7 +151,7 @@ c.post("/api/archives/rename", json={"paths": good})
 check("rename: use follows Settings rename_use", calls[-1][2] == "oldest", calls[-1])
 for use in ("middle", "", "NEWEST ", 1, True, ["newest"], {"a": 1}):
     n = len(calls)
-    r = c.post("/api/archives/rename", json={"paths": good, "use": use, "preview": False})
+    r = c.post("/api/archives/rename", json={"paths": good, "use": use, "preview": False, "expect": EX})
     check(f"rename: use={use!r} -> 400", r.status_code == 400 and "newest or oldest" in r.get_json()["error"] and len(calls) == n, (r.status_code, calls[n:]))
 r = c.post("/api/archives/rename", json={"paths": good, "use": "newest", "preview": "yes"})
 check("rename: preview must be boolean", r.status_code == 400)
@@ -142,9 +159,16 @@ check("rename: preview must be boolean", r.status_code == 400)
 r = c.post("/api/archives/rescan", json={"paths": good})
 check("rescan: routes to the engine", r.status_code == 200 and calls[-1] == ("rescan", good) and r.get_json()["ok"] is True)
 
+main.engine.rescan = lambda paths, cfg: {"results": [{"path": p, "ok": False, "reason": "not in the index"} for p in paths]}
+r = c.post("/api/archives/rescan", json={"paths": good})
+check("rescan: nothing accepted -> HTTP 200 with top-level ok false", r.status_code == 200 and r.get_json()["ok"] is False
+      and r.get_json()["results"][0]["reason"] == "not in the index", r.get_json())
+main.engine.rescan = lambda paths, cfg: {"results": [{"path": paths[0], "ok": True}, {"path": "/x", "ok": False, "reason": "no"}]}
+check("rescan: some accepted -> ok true", c.post("/api/archives/rescan", json={"paths": good + ["/x"]}).get_json()["ok"] is True)
+
 # --- actions refused by the engine are passed on (e.g. a scan is running)
-main.engine.delete_archives = lambda paths, cfg, preview=True: {"results": [{"path": p, "ok": False, "reason": "a scan is running"} for p in paths], "count": 0, "bytes": 0}
-r = c.post("/api/archives/delete", json={"paths": good, "preview": False})
+main.engine.delete_archives = lambda paths, cfg, preview=True, expect=None: {"results": [{"path": p, "ok": False, "reason": "a scan is running"} for p in paths], "count": 0, "bytes": 0}
+r = c.post("/api/archives/delete", json={"paths": good, "preview": False, "expect": EX})
 check("refusals reach the client", r.status_code == 200 and r.get_json()["results"][0]["reason"] == "a scan is running" and r.get_json()["count"] == 0)
 
 # --- busy: engine.start() says no while a delete / rename / rescan runs -> 409, nothing recorded

@@ -1518,7 +1518,7 @@ async function actPreview() {
   try { res = await post(act.kind === "rename" ? "/api/archives/rename" : "/api/archives/delete", body); }
   catch (e) { if (seq === act.seq) { $("actSum").textContent = ""; $("actList").replaceChildren(h("div", { class: "missing" }, "Could not prepare the preview: " + e.message)); } return; }
   if (seq !== act.seq) return;
-  act.res = res;
+  act.res = res; act.expect = res.expect || {};
   const rs = res.results || [], ok = rs.filter((r) => r.ok);
   const list = $("actList"); list.replaceChildren();
   const LIMIT = 1000;
@@ -1568,7 +1568,7 @@ async function actConfirm() {
   $("dlgAct").setAttribute("aria-busy", "true"); $("actOk").textContent = "Working…";
   $("actNote").textContent = "Working - this can take a while for big archives. Please keep this window open.";
   const kind = act.kind;
-  const body = { paths: act.paths, preview: false };
+  const body = { paths: act.paths, preview: false, expect: act.expect || {} };
   if (kind === "rename") body.use = (document.querySelector('input[name="actUse"]:checked') || {}).value || "newest";
   let res;
   try { res = await post(kind === "rename" ? "/api/archives/rename" : "/api/archives/delete", body); }

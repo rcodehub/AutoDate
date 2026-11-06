@@ -494,6 +494,17 @@ def _preview_from(body):
     return v, None
 
 
+def _expect_from(body, preview):
+    """`expect` ({path: target or new path}, as returned by the preview that was shown) is required for a real
+    run, so that it only does what the preview showed. Returns (expect or None, error text)."""
+    if preview:
+        return None, None
+    ex = body.get("expect")
+    if not isinstance(ex, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in ex.items()):
+        return None, "expect is required: send back the expect object of the preview you confirmed"
+    return ex, None
+
+
 def _engine_call(fn, *args, **kw):
     """Run an engine call; an engine that is not available yet answers 501 instead of a stack trace."""
     try:
@@ -561,7 +572,10 @@ def api_archives_delete():
     preview, err = _preview_from(body)
     if err:
         return _bad(err)
-    res, bad = _engine_call(engine.delete_archives, paths, settings.load(), preview=preview)
+    expect, err = _expect_from(body, preview)
+    if err:
+        return _bad(err)
+    res, bad = _engine_call(engine.delete_archives, paths, settings.load(), preview=preview, expect=expect)
     return bad or jsonify(dict(res, ok=True, preview=preview))
 
 
@@ -582,7 +596,10 @@ def api_archives_rename():
     preview, err = _preview_from(body)
     if err:
         return _bad(err)
-    res, bad = _engine_call(engine.rename_archives, paths, use, settings.load(), preview=preview)
+    expect, err = _expect_from(body, preview)
+    if err:
+        return _bad(err)
+    res, bad = _engine_call(engine.rename_archives, paths, use, settings.load(), preview=preview, expect=expect)
     return bad or jsonify(dict(res, ok=True, preview=preview, use=use))
 
 
@@ -601,7 +618,8 @@ def api_archives_rescan():
     if isinstance(res, (tuple, list)):                       # (ok, error text)
         ok, why = res[0], (res[1] if len(res) > 1 else "")
         return (jsonify(ok=True, count=len(paths)) if ok else _bad(why or "Could not rescan", 409))
-    return jsonify(dict(res, ok=True))
+    rs = res.get("results") or []
+    return jsonify(dict(res, ok=any(r.get("ok") for r in rs) if rs else True))
 
 
 @app.route("/api/history")
