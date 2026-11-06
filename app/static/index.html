@@ -189,6 +189,63 @@ dialog::backdrop { background: rgba(0,0,0,.5); }
 .tpanel .seg button { flex: 1; }
 .tpanel input[type=range] { width: 100%; accent-color: var(--accent); }
 .tp-foot { margin-top: 22px; display: flex; gap: 8px; align-items: center; }
+
+/* archives */
+.arbar { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin: 12px 0 10px; }
+.arbar input[type=text] { width: auto; flex: 1 1 200px; max-width: 340px; }
+.arbar select { width: auto; }
+.arbar label.inl { display: flex; gap: 6px; align-items: center; cursor: pointer; white-space: nowrap; }
+.arsel { display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: center; margin: 0 0 10px; min-height: 32px; }
+.tablewrap { overflow-x: auto; max-width: 100%; border: 1px solid var(--line); border-radius: var(--radius-sm, 8px); }
+#arTable { min-width: 1020px; }
+#arTable td, #arTable th { vertical-align: middle; }
+#arTable tbody tr.ar { cursor: pointer; }
+#arTable tbody tr.ar:hover > td { background: var(--accent-soft); }
+#arTable tbody tr.ar.out > td { background: var(--warn-soft); }
+#arTable tbody tr.ar.out > td:first-child { box-shadow: inset 4px 0 0 var(--warn); }
+#arTable tbody tr.ar.out:hover > td { background: color-mix(in srgb, var(--warn) 24%, var(--warn-soft)); }
+#arTable tbody tr.ar.sel > td { outline: 0; }
+#arTable tbody tr.ar.sel > td:nth-child(2) { font-weight: 600; }
+#arTable td.r, #arTable th.r, .entries td.r, .entries th.r { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+#arTable td.cb, #arTable th.cb { width: 36px; padding-right: 0; }
+#arTable td.dt { white-space: nowrap; font-variant-numeric: tabular-nums; }
+#arTable td.nm { min-width: 220px; max-width: 360px; overflow-wrap: anywhere; }
+#arTable td.fo { min-width: 160px; max-width: 280px; overflow-wrap: anywhere; font-size: 13px; color: var(--muted); }
+.sortb { background: none; border: 0; padding: 0; font: inherit; text-transform: inherit; letter-spacing: inherit; color: inherit; font-weight: 600; cursor: pointer; white-space: nowrap; }
+.sortb:hover:not(:disabled) { color: var(--text); border: 0; }
+.sortb .ar-ind { color: var(--accent); }
+.caret { background: none; border: 0; padding: 0 6px 0 0; color: var(--muted); font-size: 12px; cursor: pointer; }
+.badge.bad { background: var(--bad-soft); color: var(--bad); }
+.badge.info { background: var(--accent-soft); color: var(--accent); }
+.badge.ok { background: transparent; color: var(--muted); font-weight: 400; }
+.badges { display: flex; flex-wrap: wrap; gap: 4px; }
+#arTable tr.detail > td { padding: 0; background: var(--bg); border-bottom: 1px solid var(--line); }
+.detailbox { position: sticky; left: 0; padding: 10px 12px 12px; box-sizing: border-box; }
+.detailbox .meta { font-size: 13px; color: var(--muted); margin-bottom: 8px; overflow-wrap: anywhere; }
+.entrybox { height: 280px; overflow: auto; border: 1px solid var(--line); border-radius: var(--radius-sm, 8px); background: var(--panel-solid, var(--panel)); }
+.entries { font-size: 13px; }
+.entries th { position: sticky; top: 0; background: var(--panel-solid, var(--panel)); z-index: 1; }
+.entries td, .entries th { padding: 5px 10px; }
+.entries td.en { overflow-wrap: anywhere; font-family: var(--mono); font-size: 12.5px; }
+.entries tr.fol td.en { font-weight: 600; }
+.pager { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin-top: 10px; }
+#arMsg .banner { display: flex; gap: 10px; align-items: flex-start; }
+#arMsg .banner > div { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+#arMsg .banner ul { margin: 4px 0 0; padding-left: 18px; }
+#arMsg .banner button { padding: 0 6px; border: 0; background: none; color: inherit; }
+#dlgAct { width: min(820px, 94vw); }
+#dlgAct .dlg-b { padding: 12px 16px; max-height: 58vh; }
+#dlgAct .radios { display: flex; flex-wrap: wrap; gap: 6px 18px; margin-bottom: 10px; }
+#dlgAct .radios label { display: flex; gap: 6px; align-items: center; cursor: pointer; }
+.actsum { margin-bottom: 8px; font-weight: 600; }
+.actrow { padding: 6px 0; border-bottom: 1px solid var(--line); font-size: 13.5px; overflow-wrap: anywhere; }
+.actrow:last-child { border-bottom: 0; }
+.actrow .nm { font-family: var(--mono); font-size: 12.5px; }
+.actrow .dir { color: var(--muted); font-size: 12px; }
+.actrow .arrow { color: var(--accent); font-weight: 600; margin: 0 4px; }
+.actrow.no .why { color: var(--bad); }
+.actrow .perm { color: var(--bad); font-weight: 700; }
+@media (max-width: 560px) { .arbar input[type=text] { max-width: none; } }
 </style>
 </head>
 <body>
@@ -276,12 +333,24 @@ dialog::backdrop { background: rgba(0,0,0,.5); }
   <!-- ARCHIVES -->
   <div id="tab-archives" class="tab">
     <section class="card" style="margin-top:0">
-      <!-- TODO(web agent): the Archives tab - summary chips, toolbar (search, Outdated only, type and status
-           filters), sortable table with expandable entries, Rename with year... / Delete... / Rescan selected
-           with preview dialogs. Backed by GET /api/archives, GET /api/archive, POST /api/archives/delete,
-           /rename, /rescan (all answer 501 until implemented). Keep it working at 375 px wide. -->
-      <h2>Archives</h2>
-      <div class="muted small">Coming soon: every scanned archive with the dates of the files inside it.</div>
+      <div class="chips" id="arChips" style="margin-top:0"></div>
+      <div class="arbar">
+        <input type="text" id="arQ" placeholder="Search name or folder" aria-label="Search archives" spellcheck="false" autocomplete="off">
+        <label class="inl" title="Only archives whose contents are older than the limit set in Settings"><input type="checkbox" id="arOut"> Outdated only</label>
+        <select id="arType" aria-label="Type"><option value="">All types</option><option value="zip">zip</option><option value="rar">rar</option><option value="7z">7z</option><option value="tar">tar</option></select>
+        <select id="arStatus" aria-label="Status"><option value="">Any status</option><option value="ok">OK</option><option value="failed">Failed</option><option value="encrypted">Encrypted</option></select>
+      </div>
+      <div class="arsel">
+        <span id="arSelCount" class="muted small">Nothing selected</span>
+        <button class="small" id="arRename" disabled>Rename with year…</button>
+        <button class="small danger" id="arDelete" disabled>Delete…</button>
+        <button class="small" id="arRescan" disabled>Rescan selected</button>
+        <button class="small" id="arClear" disabled>Clear selection</button>
+      </div>
+      <div id="arMsg"></div>
+      <div class="tablewrap" id="arWrap"><table id="arTable"><thead id="arHead"></thead><tbody id="arBody"></tbody></table></div>
+      <div class="pager"><button class="small" id="arPrev">‹ Previous</button><span id="arPageInfo" class="muted small"></span><button class="small" id="arNext">Next ›</button>
+        <span class="muted small" style="margin-left:auto">Click a row to see the dates of the files inside. Nothing is extracted.</span></div>
     </section>
   </div>
 
@@ -419,6 +488,17 @@ dialog::backdrop { background: rgba(0,0,0,.5); }
   <div class="hint" style="margin-top:12px">The look is saved on the server (in /data/ui.json) and used in every browser. Light/dark mode is chosen per browser.</div>
 </aside>
 
+<dialog id="dlgAct">
+  <div class="dlg-h" id="actTitle">Archives</div>
+  <div class="dlg-b">
+    <div id="actOpts"></div>
+    <div id="actSum" class="actsum"></div>
+    <div id="actList"></div>
+  </div>
+  <div class="dlg-f"><span class="muted small" id="actNote" style="margin-right:auto"></span>
+    <button id="actCancel">Cancel</button><button class="primary" id="actOk" disabled>Confirm</button></div>
+</dialog>
+
 <dialog id="dlgOne">
   <div class="dlg-h">Scan a folder now</div>
   <div class="dlg-b" style="max-height:none;padding:12px 16px">
@@ -484,6 +564,7 @@ let serverSkew = 0;   // server clock - browser clock
 document.querySelectorAll("nav button").forEach((b) => b.addEventListener("click", () => {
   document.querySelectorAll("nav button").forEach((x) => x.classList.toggle("on", x === b));
   document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("on", t.id === "tab-" + b.dataset.tab));
+  if (b.dataset.tab === "archives") loadArchives();
   if (b.dataset.tab === "history") loadHistory();
   if (b.dataset.tab === "stats") loadStats();
 }));
@@ -1163,6 +1244,344 @@ $("tpReset").addEventListener("click", () => setLook({ ...Theme.DEFAULTS }));
 window.addEventListener("ad-theme", syncModeBtn);
 api("/api/ui").then((d) => { Theme.apply(d.ui); syncModeBtn(); }).catch(() => {});
 syncModeBtn();
+
+// ---------------------------------------------------------------- archives
+const AR_PAGE = 200;
+const AR_COLS = [
+  { k: "name", l: "Name" }, { k: "folder", l: "Folder" }, { k: "archive_date", l: "Archive date" },
+  { k: "oldest", l: "Oldest content" }, { k: "newest", l: "Newest content" },
+  { k: "age_years", l: "Age", r: 1, t: "How much older the newest file inside is than the archive itself" },
+  { k: "files", l: "Files", r: 1 }, { k: "size", l: "Size", r: 1 }, { k: null, l: "Status" }];
+const ar = { sort: "name", desc: false, q: "", outdated: false, type: "", status: "", page: 0, total: 0, items: [], summary: null };
+const arSel = new Set(), arOpen = new Set(), arCache = new Map();
+let arSeq = 0, arTimer = null;
+try {
+  const v = JSON.parse(localStorage.getItem("ad.arView") || "null");
+  if (v && AR_COLS.some((c) => c.k === v.sort)) { ar.sort = v.sort; ar.desc = !!v.desc; }
+  if (v && typeof v.outdated === "boolean") ar.outdated = v.outdated;
+} catch (e) { /* ignore */ }
+
+const pad2 = (n) => String(n).padStart(2, "0");
+function fmtDay(t, withTime) {
+  if (t == null) return null;
+  const d = new Date(t * 1000);
+  return d.getFullYear() + "-" + pad2(d.getMonth() + 1) + "-" + pad2(d.getDate()) + (withTime ? " " + pad2(d.getHours()) + ":" + pad2(d.getMinutes()) : "");
+}
+const unknown = () => h("span", { class: "muted" }, "unknown");
+const baseName = (p) => p.slice(p.lastIndexOf("/") + 1);
+const dirName = (p) => p.slice(0, Math.max(0, p.lastIndexOf("/"))) || "/";
+function fmtAge(y) {
+  if (y == null) return null;
+  return y >= 0.05 ? y.toFixed(1) + " y older" : y > -0.05 ? "same year" : "newer";
+}
+
+function arSaveView() {
+  try { localStorage.setItem("ad.arView", JSON.stringify({ sort: ar.sort, desc: ar.desc, outdated: ar.outdated })); } catch (e) { /* ignore */ }
+}
+
+function arHead() {
+  const tr = h("tr", {});
+  const all = h("input", { type: "checkbox", id: "arAll", "aria-label": "Select all on this page" });
+  all.addEventListener("change", () => {
+    for (const it of ar.items) { if (all.checked) arSel.add(it.path); else arSel.delete(it.path); }
+    arRender();
+  });
+  tr.append(h("th", { class: "cb" }, all));
+  for (const c of AR_COLS) {
+    const th = h("th", { class: c.r ? "r" : "", title: c.t || "" });
+    if (!c.k) { th.append(c.l); tr.append(th); continue; }
+    const on = ar.sort === c.k;
+    th.setAttribute("aria-sort", on ? (ar.desc ? "descending" : "ascending") : "none");
+    th.append(h("button", { class: "sortb", onclick: () => {
+      if (ar.sort === c.k) ar.desc = !ar.desc; else { ar.sort = c.k; ar.desc = false; }
+      ar.page = 0; arSaveView(); loadArchives();
+    } }, c.l, h("span", { class: "ar-ind" }, on ? (ar.desc ? " ▼" : " ▲") : "")));
+    tr.append(th);
+  }
+  $("arHead").replaceChildren(tr);
+}
+
+function arBadges(it) {
+  const out = [];
+  if (it.status === "failed") out.push(h("span", { class: "badge bad", title: it.error || "Could not be read" }, "failed"));
+  if (it.encrypted) out.push(h("span", { class: "badge", title: "The file list is encrypted, so no dates can be read" }, "encrypted"));
+  if (it.partial) out.push(h("span", { class: "badge", title: "Some entries have no usable date" }, "partial"));
+  if (it.truncated) out.push(h("span", { class: "badge", title: "Very many entries: only the first ones are kept, the rest were counted" }, "truncated"));
+  if (it.future) out.push(h("span", { class: "badge info", title: "Some file has a date in the future" }, "future"));
+  if (!out.length) out.push(h("span", { class: "badge ok" }, "ok"));
+  return h("div", { class: "badges" }, out);
+}
+
+function arRow(it) {
+  const open = arOpen.has(it.path), nvol = typeof it.volumes === "number" ? it.volumes : (it.volumes || []).length;
+  const cb = h("input", { type: "checkbox", "aria-label": "Select " + baseName(it.path) });
+  cb.checked = arSel.has(it.path);
+  cb.addEventListener("click", (e) => e.stopPropagation());
+  cb.addEventListener("change", () => { if (cb.checked) arSel.add(it.path); else arSel.delete(it.path); tr.classList.toggle("sel", cb.checked); arSelUi(); });
+  const caret = h("button", { class: "caret", "aria-expanded": String(open), "aria-label": "Show the files inside" }, open ? "▼" : "▶");
+  const files = it.files != null ? it.files : it.file_count;
+  const tr = h("tr", { class: "ar" + (it.outdated ? " out" : "") + (arSel.has(it.path) ? " sel" : ""), title: it.path },
+    h("td", { class: "cb" }, cb),
+    h("td", { class: "nm" }, caret, baseName(it.path), nvol > 1 ? h("span", { class: "muted small" }, " (" + nvol + " parts)") : ""),
+    h("td", { class: "fo" }, dirName(it.path)),
+    h("td", { class: "dt" }, fmtDay(it.archive_date) || unknown()),
+    h("td", { class: "dt" }, fmtDay(it.oldest) || unknown()),
+    h("td", { class: "dt" }, fmtDay(it.newest) || unknown()),
+    h("td", { class: "r" }, fmtAge(it.age_years) || unknown()),
+    h("td", { class: "r" }, fmtNum(files)),
+    h("td", { class: "r" }, fmtSize(it.size)),
+    h("td", {}, arBadges(it)));
+  const toggle = () => { if (arOpen.has(it.path)) arOpen.delete(it.path); else arOpen.add(it.path); arRender(); };
+  tr.addEventListener("click", (e) => { if (!e.target.closest("input")) toggle(); });
+  return tr;
+}
+
+function arRender() {
+  arHead();
+  const body = $("arBody"); body.replaceChildren();
+  if (!ar.items.length) {
+    body.append(h("tr", {}, h("td", { colspan: 10, class: "idle" },
+      ar.summary && ar.summary.archives ? "No archive matches these filters." : "No archives yet - run a scan from the Status tab.")));
+  }
+  for (const it of ar.items) {
+    body.append(arRow(it));
+    if (arOpen.has(it.path)) {
+      const box = h("div", { class: "detailbox" }, h("div", { class: "muted small" }, "Loading…"));
+      body.append(h("tr", { class: "detail" }, h("td", { colspan: 10 }, box)));
+      sizeDetail(box);
+      arLoadDetail(it, box);
+    }
+  }
+  const all = $("arAll");
+  if (all) {
+    const n = ar.items.filter((it) => arSel.has(it.path)).length;
+    all.checked = ar.items.length > 0 && n === ar.items.length;
+    all.indeterminate = n > 0 && n < ar.items.length;
+  }
+  const from = ar.total ? ar.page * AR_PAGE + 1 : 0, to = Math.min(ar.total, ar.page * AR_PAGE + ar.items.length);
+  $("arPageInfo").textContent = ar.total ? fmtNum(from) + "-" + fmtNum(to) + " of " + fmtNum(ar.total) : "0 archives";
+  $("arPrev").disabled = ar.page === 0;
+  $("arNext").disabled = (ar.page + 1) * AR_PAGE >= ar.total;
+  arSelUi();
+}
+
+function sizeDetail(box) {         // keep the details box as wide as the visible part of the table, so it never needs sideways scrolling
+  box.style.width = Math.max(240, $("arWrap").clientWidth - 2) + "px";
+}
+window.addEventListener("resize", () => document.querySelectorAll(".detailbox").forEach(sizeDetail));
+
+function arSelUi() {
+  const n = arSel.size;
+  $("arSelCount").textContent = n ? fmtNum(n) + " selected" : "Nothing selected";
+  for (const id of ["arRename", "arDelete", "arRescan", "arClear"]) $(id).disabled = !n;
+  const all = $("arAll");
+  if (all) {
+    const k = ar.items.filter((it) => arSel.has(it.path)).length;
+    all.checked = ar.items.length > 0 && k === ar.items.length;
+    all.indeterminate = k > 0 && k < ar.items.length;
+  }
+}
+
+function arChips(sum) {
+  const box = $("arChips"); box.replaceChildren();
+  if (!sum) return;
+  const chip = (v, l) => h("div", {}, h("b", {}, v), h("span", {}, l));
+  box.append(chip(fmtNum(sum.archives), "archives"), chip(fmtNum(sum.outdated), "outdated"),
+    chip(fmtNum(sum.failed), "failed"), chip(fmtSize(sum.bytes), "total size"));
+}
+
+async function loadArchives() {
+  const seq = ++arSeq;
+  const qs = new URLSearchParams({ sort: ar.sort, desc: ar.desc ? 1 : 0, q: ar.q, outdated: ar.outdated ? 1 : 0,
+    type: ar.type, status: ar.status, offset: ar.page * AR_PAGE, limit: AR_PAGE });
+  let d;
+  try { d = await api("/api/archives?" + qs); }
+  catch (e) { if (seq === arSeq) arNote("bad", "Could not load the archives: " + e.message); return; }
+  if (seq !== arSeq) return;
+  if (!d.items.length && d.total > 0 && ar.page > 0) { ar.page = Math.ceil(d.total / AR_PAGE) - 1; return loadArchives(); }
+  ar.items = d.items; ar.total = d.total; ar.summary = d.summary;
+  arChips(d.summary);
+  arRender();
+}
+
+function arNote(kind, text, lines) {
+  const box = $("arMsg"); box.replaceChildren();
+  if (!text) return;
+  const close = h("button", { "aria-label": "Dismiss", onclick: () => box.replaceChildren() }, "✕");
+  box.append(h("div", { class: "banner " + kind }, h("div", {}, text, lines && lines.length ? h("ul", {}, lines.map((x) => h("li", {}, x))) : ""), close));
+}
+
+// the entries of one archive, loaded when its row is opened
+async function arLoadDetail(it, box) {
+  let rec = arCache.get(it.path);
+  if (!rec) {
+    try { rec = await api("/api/archive?path=" + encodeURIComponent(it.path)); arCache.set(it.path, rec); }
+    catch (e) { box.replaceChildren(h("div", { class: "missing" }, "Could not load the entries: " + e.message)); return; }
+  }
+  if (!box.isConnected) return;
+  const st = { sort: "name", desc: false, shown: 1000 };
+  const draw = () => {
+    const ents = (rec.entries || []).slice();
+    const key = { name: (e) => e.name.toLowerCase(), type: (e) => (e.folder ? 0 : 1), size: (e) => e.size || 0, date: (e) => e.date };
+    const f = key[st.sort], dir = st.desc ? -1 : 1;
+    ents.sort((a, b) => {
+      const x = f(a), y = f(b);
+      if (st.sort === "date" && (x == null || y == null)) return x == null && y == null ? 0 : x == null ? 1 : -1;   // unknown last
+      return (x < y ? -1 : x > y ? 1 : 0) * dir;
+    });
+    const th = (k, l, r) => h("th", { class: r ? "r" : "", "aria-sort": st.sort === k ? (st.desc ? "descending" : "ascending") : "none" },
+      h("button", { class: "sortb", onclick: () => { if (st.sort === k) st.desc = !st.desc; else { st.sort = k; st.desc = false; } draw(); } },
+        l, h("span", { class: "ar-ind" }, st.sort === k ? (st.desc ? " ▼" : " ▲") : "")));
+    const rows = ents.slice(0, st.shown).map((e) => h("tr", { class: e.folder ? "fol" : "" },
+      h("td", { class: "en" }, e.name + (e.folder && !e.name.endsWith("/") ? "/" : "")),
+      h("td", {}, e.folder ? "folder" : "file"),
+      h("td", { class: "r" }, e.folder ? "" : fmtSize(e.size)),
+      h("td", { class: "r" }, e.date == null ? unknown() : fmtDay(e.date, true), e.future ? h("span", { class: "badge info", style: "margin-left:6px" }, "future") : "")));
+    const more = ents.length > st.shown
+      ? h("div", { style: "padding:8px 10px" }, h("button", { class: "small", onclick: () => { st.shown += 2000; draw(); } }, "Show more (" + fmtNum(ents.length - st.shown) + " left)")) : "";
+    const meta = [];
+    meta.push(h("div", { class: "meta" }, rec.path + " - " + fmtNum(rec.file_count) + " files, " + fmtNum(rec.folder_count) + " folders"
+      + (rec.volumes && rec.volumes.length > 1 ? ", " + rec.volumes.length + " parts" : "")
+      + (rec.truncated ? " - only the first " + fmtNum((rec.entries || []).length) + " entries are kept" : "")
+      + (rec.scanned_at ? " - read " + ago(rec.scanned_at) : "")));
+    if (rec.error) meta.push(h("div", { class: "missing" }, rec.error));
+    if (rec.encrypted) meta.push(h("div", { class: "warnline" }, "The file list of this archive is encrypted, so the dates inside cannot be read."));
+    box.replaceChildren(...meta, h("div", { class: "entrybox" }, h("table", { class: "entries" },
+      h("thead", {}, h("tr", {}, th("name", "Name"), th("type", "Type"), th("size", "Size", true), th("date", "Date", true))),
+      h("tbody", {}, rows.length ? rows : h("tr", {}, h("td", { colspan: 4, class: "idle" }, "No entries"))), ), more));
+  };
+  draw();
+}
+
+// filters
+$("arQ").addEventListener("input", () => { clearTimeout(arTimer); arTimer = setTimeout(() => { ar.q = $("arQ").value.trim(); ar.page = 0; loadArchives(); }, 300); });
+$("arOut").addEventListener("change", () => { ar.outdated = $("arOut").checked; ar.page = 0; arSaveView(); loadArchives(); });
+$("arType").addEventListener("change", () => { ar.type = $("arType").value; ar.page = 0; loadArchives(); });
+$("arStatus").addEventListener("change", () => { ar.status = $("arStatus").value; ar.page = 0; loadArchives(); });
+$("arPrev").addEventListener("click", () => { if (ar.page > 0) { ar.page--; loadArchives(); $("arWrap").scrollIntoView({ block: "nearest" }); } });
+$("arNext").addEventListener("click", () => { ar.page++; loadArchives(); });
+$("arClear").addEventListener("click", () => { arSel.clear(); arRender(); });
+$("arOut").checked = ar.outdated;
+
+// actions on the selected archives
+let act = null;
+const ACT_MAX = 5000;
+function actPaths() {
+  const paths = [...arSel];
+  if (paths.length > ACT_MAX) { arNote("warn", "You selected " + fmtNum(paths.length) + " archives; at most " + ACT_MAX + " can be handled at once. Clear some and try again."); return null; }
+  return paths;
+}
+async function openAct(kind) {
+  const paths = actPaths();
+  if (!paths || !paths.length) return;
+  act = { kind, paths, seq: 0, busy: false, res: null };
+  const n = paths.length, what = n + " archive" + (n === 1 ? "" : "s");
+  $("actTitle").textContent = kind === "rename" ? "Rename " + what + " with the year of their contents" : "Delete " + what;
+  const opts = $("actOpts"); opts.replaceChildren();
+  if (kind === "rename") {
+    const def = (typeof current === "object" && current && current.rename_use) || "newest";
+    const radio = (v, l) => { const i = h("input", { type: "radio", name: "actUse", value: v }); i.checked = v === def; i.addEventListener("change", actPreview); return h("label", {}, i, l); };
+    opts.append(h("div", { class: "muted small", style: "margin-bottom:6px" }, "Adds the year to the name: name.rar becomes name (2016).rar. Which date gives the year?"),
+      h("div", { class: "radios" }, radio("newest", "Newest file in the archive"), radio("oldest", "Oldest file in the archive")));
+  }
+  $("actOk").className = kind === "delete" ? "danger" : "primary";
+  $("actOk").textContent = "Confirm";
+  $("actNote").textContent = "";
+  $("dlgAct").showModal();
+  await actPreview();
+}
+async function actPreview() {
+  if (!act) return;
+  const seq = ++act.seq;
+  $("actOk").disabled = true; $("actSum").textContent = "Checking…"; $("actList").replaceChildren();
+  const body = { paths: act.paths, preview: true };
+  if (act.kind === "rename") body.use = (document.querySelector('input[name="actUse"]:checked') || {}).value || "newest";
+  let res;
+  try { res = await post(act.kind === "rename" ? "/api/archives/rename" : "/api/archives/delete", body); }
+  catch (e) { if (seq === act.seq) { $("actSum").textContent = ""; $("actList").replaceChildren(h("div", { class: "missing" }, "Could not prepare the preview: " + e.message)); } return; }
+  if (seq !== act.seq) return;
+  act.res = res;
+  const rs = res.results || [], ok = rs.filter((r) => r.ok);
+  const list = $("actList"); list.replaceChildren();
+  const LIMIT = 1000;
+  for (const r of rs.slice(0, LIMIT)) list.append(actRow(r));
+  if (rs.length > LIMIT) list.append(h("div", { class: "muted small", style: "padding:8px 0" }, "… and " + fmtNum(rs.length - LIMIT) + " more (all are included)."));
+  const refused = rs.length - ok.length;
+  if (act.kind === "rename") {
+    $("actSum").textContent = fmtNum(ok.length) + " will be renamed" + (refused ? ", " + fmtNum(refused) + " refused" : "") + ". Nothing has changed yet.";
+    $("actOk").textContent = "Rename " + fmtNum(ok.length) + " archive" + (ok.length === 1 ? "" : "s");
+  } else {
+    const bytes = ok.reduce((a, r) => a + (r.bytes || 0), 0);
+    const perm = ok.filter((r) => actKind(r) === "delete").length;
+    $("actSum").replaceChildren(fmtNum(ok.length) + " will be deleted, " + fmtSize(res.bytes != null ? res.bytes : bytes) + " in total" + (refused ? ", " + fmtNum(refused) + " refused" : "") + ". Nothing has changed yet.",
+      perm ? h("div", { class: "perm", style: "color:var(--bad);margin-top:4px" }, fmtNum(perm) + " will be deleted permanently and cannot be restored.") : "");
+    $("actOk").textContent = "Delete " + fmtNum(ok.length) + " archive" + (ok.length === 1 ? "" : "s");
+  }
+  $("actOk").disabled = !ok.length;
+}
+function actKind(r) {
+  const a = String(r.action || "").toLowerCase();
+  return a.includes("recycle") ? "recycle" : a.includes("move") || a.includes("trash") ? "move" : "delete";
+}
+function actRow(r) {
+  const head = [h("div", { class: "dir" }, dirName(r.path))];
+  if (!r.ok) return h("div", { class: "actrow no" }, ...head, h("div", { class: "nm" }, baseName(r.path)), h("div", { class: "why" }, "Refused: " + (r.reason || "not allowed")));
+  if (act.kind === "rename") {
+    const more = (r.renamed || []).length > 1 ? " (+" + ((r.renamed || []).length - 1) + " more file" + ((r.renamed || []).length === 2 ? "" : "s") + ")" : "";
+    return h("div", { class: "actrow" }, ...head, h("div", { class: "nm" }, baseName(r.path), h("span", { class: "arrow" }, "→"), baseName(r.new_path || ""), more));
+  }
+  const k = actKind(r);
+  const where = k === "recycle" ? h("span", {}, "→ Recycle Bin: ", h("span", { class: "nm" }, r.target || ""))
+    : k === "move" ? h("span", {}, "→ moved to ", h("span", { class: "nm" }, r.target || ""))
+    : h("span", { class: "perm" }, "deleted permanently");
+  return h("div", { class: "actrow" }, ...head, h("div", { class: "nm" }, baseName(r.path), "  ", h("span", { class: "muted" }, fmtSize(r.bytes || 0))), h("div", {}, where));
+}
+async function actConfirm() {
+  if (!act || act.busy) return;
+  act.busy = true; $("actOk").disabled = true; $("actCancel").disabled = true; $("actNote").textContent = "Working…";
+  const kind = act.kind;
+  const body = { paths: act.paths, preview: false };
+  if (kind === "rename") body.use = (document.querySelector('input[name="actUse"]:checked') || {}).value || "newest";
+  let res;
+  try { res = await post(kind === "rename" ? "/api/archives/rename" : "/api/archives/delete", body); }
+  catch (e) { act.busy = false; $("actCancel").disabled = false; $("actNote").textContent = "Failed: " + e.message; $("actOk").disabled = false; return; }
+  $("dlgAct").close();
+  const rs = res.results || [], ok = rs.filter((r) => r.ok), bad = rs.filter((r) => !r.ok);
+  for (const r of ok) { arSel.delete(r.path); arOpen.delete(r.path); }
+  arCache.clear();
+  const verb = kind === "rename" ? "Renamed" : "Deleted";
+  const lines = bad.slice(0, 10).map((r) => baseName(r.path) + ": " + (r.reason || "refused"));
+  if (bad.length > 10) lines.push("… and " + (bad.length - 10) + " more");
+  arNote(bad.length ? "warn" : "ok", verb + " " + ok.length + " of " + rs.length + " archive" + (rs.length === 1 ? "" : "s") + (bad.length ? "; " + bad.length + " refused:" : "."), lines);
+  act = null;
+  loadArchives();
+}
+$("actOk").addEventListener("click", actConfirm);
+$("actCancel").addEventListener("click", () => { $("dlgAct").close(); });
+$("dlgAct").addEventListener("close", () => { if (act && !act.busy) act = null; else if (act) act = null; $("actCancel").disabled = false; });
+$("arRename").addEventListener("click", () => openAct("rename"));
+$("arDelete").addEventListener("click", () => openAct("delete"));
+$("arRescan").addEventListener("click", async () => {
+  const paths = actPaths();
+  if (!paths || !paths.length) return;
+  $("arRescan").disabled = true;
+  try {
+    const res = await post("/api/archives/rescan", { paths });
+    const rs = res.results || [], bad = rs.filter((r) => r.ok === false);
+    arCache.clear();
+    arNote(bad.length ? "warn" : "ok", "Rescanned " + (rs.length ? rs.length - bad.length : paths.length) + " of " + (rs.length || paths.length) + " archive" + ((rs.length || paths.length) === 1 ? "" : "s") + (bad.length ? "; " + bad.length + " could not be rescanned:" : "."),
+      bad.slice(0, 10).map((r) => baseName(r.path || "") + ": " + (r.reason || r.error || "failed")));
+  } catch (e) { arNote("bad", "Rescan failed: " + e.message); }
+  $("arRescan").disabled = !arSel.size;
+  loadArchives();
+});
+// keep the table fresh while a scan is running
+let arWasRunning = false;
+setInterval(() => {
+  const on = $("tab-archives").classList.contains("on") && !$("dlgAct").open;
+  if (on && (running || arWasRunning)) loadArchives();
+  arWasRunning = running;
+}, 4000);
 
 // ---------------------------------------------------------------- go
 loadSettings().catch((e) => banner("bad", "Could not load settings: " + e.message));
