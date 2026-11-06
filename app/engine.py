@@ -17,9 +17,11 @@ import os
 import re
 import shutil
 import signal
+import struct
 import subprocess
 import threading
 import time
+import zipfile
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 
@@ -160,6 +162,17 @@ def epoch_to_str(t):
         return None
 
 
+def utc_to_local(text):
+    """"YYYY-MM-DD HH:MM:SS" in UTC -> local time of the container (historical DST of that date); None stays None."""
+    if not text:
+        return None
+    try:
+        d = datetime.datetime.strptime(text[:19], DATE_FMT).replace(tzinfo=datetime.timezone.utc)
+        return d.astimezone().strftime(DATE_FMT)
+    except (ValueError, OverflowError, OSError):
+        return text
+
+
 def _years(later, earlier):
     a, b = to_epoch(later), to_epoch(earlier)
     return None if a is None or b is None else round((a - b) / YEAR_SECONDS, 2)
@@ -218,7 +231,10 @@ class UnrarParser:
         t = c.get("type", "file").lower()
         if t.startswith("service"):
             return
-        self.dangling = c.get("ratio", "").strip().endswith("-->")
+        ratio = c.get("ratio", "").strip()
+        self.dangling = ratio.endswith("->")
+        if ratio.startswith("<-"):           # continuation of an entry that began in an earlier volume
+            return
         self.add(c["name"], t.startswith("dir"), _int(c.get("size", 0)), parse_date(c.get("mtime", "")))
 
     def feed(self, line):
@@ -854,7 +870,9 @@ class Engine:
         kind = rec["type"]
         if kind == "rar":
             acc, state, err = self._list_rar(path, slot)
-        elif kind in ("zip", "7z"):
+        elif kind == "zip":
+            acc, state, err = self._list_zip(path, slot)
+        elif kind == "7z":
             acc, state, err = self._list_7z(path, slot)
         else:
             acc, state, err = self._list_tar(path, slot)
@@ -924,9 +942,9 @@ class Engine:
                 return "a volume of this multi-part archive is missing"
         return ""
 
-    def _stream(self, cmd, parser, slot, timeout):
+    def _stream(self, cmd, parser, slot, timeout, env=None):
         """Run cmd, feed each output line to the parser. Returns (rc, other output lines)."""
-        rc, extra = self._exec(cmd, slot, timeout=timeout, on_line=lambda line: parser.feed(line) or True)
+        rc, extra = self._exec(cmd, slot, timeout=timeout, on_line=lambda line: parser.feed(line) or True, env=env)
         parser.close()
         return rc, extra
 
@@ -940,27 +958,34 @@ class Engine:
         return ""
 
     def _list_rar(self, path, slot):
-        """unrar first (it keeps the stored times as they are); 7z when unrar is missing or cannot read it."""
+        """unrar first (it keeps the stored times as they are, with the right summer time for each date); a volume
+        set is listed volume by volume (an entry continued in the next volume is one entry, dated by its first
+        part). 7z when unrar is missing or cannot read the archive."""
         unrar = self.tools.get("unrar")
         first = None
         if unrar:
             acc = _Acc()
-            p = UnrarParser(acc.add)
-            rc, extra = self._stream([unrar, "lt", "-p-", "-idc", "--", path], p, slot, LIST_TIMEOUT)
-            if self._halted(slot):
-                raise Halted()
-            low = " ".join(p.msgs + extra).lower()
-            if p.enc_headers or ("password" in low and acc.n == 0):
-                return acc, "encrypted", ""
-            bad = re.search(r"not rar archive|cannot find|cannot open|unexpected end|corrupt|checksum error|"
-                            r"crc failed|bad archive|no such file", low)
-            if rc is None:
-                err = extra[0] if extra else "unrar could not be run"
-            elif rc != 0 or bad:
-                err = self._first_msg(p.msgs, extra) or f"unrar exit code {rc}"
-            elif p.dangling:
-                err = "the archive ends in the middle of a file - a volume is missing or the download is incomplete"
-            else:
+            err = None
+            vols = self._archive_group(path)
+            for i, vol in enumerate(vols):
+                p = UnrarParser(acc.add)
+                rc, extra = self._stream([unrar, "lt", "-p-", "-idc", "--", vol], p, slot, LIST_TIMEOUT)
+                if self._halted(slot):
+                    raise Halted()
+                low = " ".join(p.msgs + extra).lower()
+                if p.enc_headers or ("password" in low and acc.n == 0):
+                    return acc, "encrypted", ""
+                bad = re.search(r"not rar archive|cannot find|cannot open|unexpected end|corrupt|checksum error|"
+                                r"crc failed|bad archive|no such file", low)
+                if rc is None:
+                    err = extra[0] if extra else "unrar could not be run"
+                elif rc != 0 or bad:
+                    err = self._first_msg(p.msgs, extra) or f"unrar exit code {rc}"
+                elif p.dangling and i == len(vols) - 1:
+                    err = "the archive ends in the middle of a file - a volume is missing or the download is incomplete"
+                if err:
+                    break
+            if not err:
                 return acc, "ok", ""
             first = err
         r = self._list_7z(path, slot) if self.tools.get("7z") else (_Acc(), "failed", "")
@@ -968,13 +993,16 @@ class Engine:
             return r[0], "failed", first
         return r
 
-    def _list_7z(self, path, slot):
+    def _list_7z(self, path, slot, utc=True):
+        """7z listing. With utc=True 7z runs with TZ=UTC so it prints the stored UTC time unchanged, which is then
+        converted to local time here with the DST rules of that date (7-Zip itself would use today's offset)."""
         z = self.tools.get("7z")
         acc = _Acc()
         if not z:
             return acc, "failed", "7z is not installed"
-        p = SevenZipParser(acc.add)
-        rc, extra = self._stream([z, "l", "-slt", "-ba", "-p", "--", path], p, slot, LIST_TIMEOUT)
+        p = SevenZipParser((lambda n, f, sz, d: acc.add(n, f, sz, utc_to_local(d))) if utc else acc.add)
+        rc, extra = self._stream([z, "l", "-slt", "-ba", "-p", "--", path], p, slot, LIST_TIMEOUT,
+                                 env={"TZ": "UTC"} if utc else None)
         if self._halted(slot):
             raise Halted()
         msgs = p.msgs + extra
@@ -988,6 +1016,50 @@ class Engine:
         if rc == 1 and re.search(r"unexpected end|headers error|missing volume|can not open", low):
             return acc, "failed", self._first_msg(msgs)
         return acc, "ok", ""
+
+    def _list_zip(self, path, slot):
+        """zip: read the central directory with Python. DOS times are local already; the NTFS / extended-timestamp
+        extra fields hold UTC and are preferred. 7z only for what Python cannot open (volumes .zip.001)."""
+        vols = self._archive_group(path)
+        last = vols[-1] if NUMVOL_RE.match(os.path.basename(path)) else path   # central directory: last volume
+        try:
+            acc = _Acc()
+            with zipfile.ZipFile(last) as zf:
+                for zi in zf.infolist():
+                    if self._halted(slot):
+                        raise Halted()
+                    folder = zi.is_dir()
+                    acc.add(zi.filename.rstrip("/") if folder else zi.filename, folder, zi.file_size,
+                            self._zip_date(zi))
+            return acc, "ok", ""
+        except Halted:
+            raise
+        except (zipfile.BadZipFile, OSError, ValueError, NotImplementedError, OverflowError, EOFError):
+            return self._list_7z(path, slot, utc=False)
+
+    @staticmethod
+    def _zip_date(zi):
+        ex, i, ntfs, ut = zi.extra or b"", 0, None, None
+        while i + 4 <= len(ex):
+            hid, size = struct.unpack_from("<HH", ex, i)
+            body = ex[i + 4:i + 4 + size]
+            i += 4 + size
+            if hid == 0x000A and len(body) >= 8:
+                j = 4
+                while j + 4 <= len(body):
+                    tag, tsz = struct.unpack_from("<HH", body, j)
+                    if tag == 1 and tsz >= 8 and j + 12 <= len(body):
+                        ft = struct.unpack_from("<Q", body, j + 4)[0]
+                        ntfs = ft / 10_000_000 - 11644473600
+                        break
+                    j += 4 + tsz
+            elif hid == 0x5455 and len(body) >= 5 and body[0] & 1:
+                ut = struct.unpack_from("<i", body, 1)[0]
+        ts = ntfs if ntfs is not None else ut
+        if ts is not None:
+            return epoch_to_str(ts) if ts > 86400 else None
+        y, mo, d, h, mi, s = zi.date_time
+        return parse_date(f"{y:04d}-{mo:02d}-{d:02d} {h:02d}:{mi:02d}:{s:02d}")
 
     def _list_tar(self, path, slot):
         acc = _Acc()
@@ -1005,12 +1077,12 @@ class Engine:
             return acc, "failed", self._first_msg(msgs) or f"tar exit code {rc}"
         return acc, "ok", ""
 
-    def _exec(self, cmd, slot=None, timeout=None, on_line=None):
+    def _exec(self, cmd, slot=None, timeout=None, on_line=None, env=None):
         """Run a tool in its own process group (so Stop / Cancel can kill it and anything it spawned) with stdin
         closed. Returns (exit code or None, output). With on_line the output is streamed line by line to it; a
         line it returns True for is consumed, the others are returned (at most 40) as the output. A tool that runs
         longer than `timeout` seconds is killed: (None, "timed out after N s")."""
-        env = dict(os.environ, LC_ALL="C.UTF-8")
+        env = dict(os.environ, LC_ALL="C.UTF-8", **(env or {}))
         try:
             p = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                                  stderr=subprocess.STDOUT, text=True, errors="replace",

@@ -273,6 +273,58 @@ except E.Halted:
 eng.stop_event.clear()
 check("a stopped run raises Halted", halted)
 
+# --- exact local times with historical summer time (TZ America/New_York forced, restored afterwards)
+old_tz = os.environ.get("TZ")
+os.environ["TZ"] = "America/New_York"
+time.tzset()
+try:
+    DST = (("summer", "2011-06-15 12:00:00"), ("winter", "2011-12-15 12:00:00"), ("new year", "2015-12-31 23:30:00"))
+    for tag, when in DST:
+        d = os.path.join(tree, f"dst-{tag.replace(' ', '')}")
+        os.makedirs(os.path.join(d, "x"))
+        fn = os.path.join(d, "x", "f.bin")
+        with open(fn, "wb") as f:
+            f.write(os.urandom(70000))
+        os.utime(fn, (epoch(when), epoch(when)))
+        os.utime(os.path.join(d, "x"), (epoch(when), epoch(when)))
+        nm = os.path.basename(d)
+        sh(["rar", "a", "-ma5", "-r", "-idq", "-v20k", os.path.join(out, f"{nm}v.rar"), "x"], d)
+        sh(["7z", "a", os.path.join(out, f"{nm}.7z"), "x"], d)
+        sh(["zip", "-qr", os.path.join(out, f"{nm}-cli.zip"), "x"], d)
+        with zipfile.ZipFile(os.path.join(out, f"{nm}-dos.zip"), "w") as zf:
+            zf.writestr(zipfile.ZipInfo("f.bin", tuple(time.localtime(epoch(when)))[:6]), "x")
+        for f in os.listdir(out):
+            if f.startswith(nm):
+                os.utime(os.path.join(out, f), (ARCHIVE_AGE, ARCHIVE_AGE))
+
+        def only(rec, who):
+            dates = {e["date"] for e in rec["entries"] if not e["folder"]}
+            check(f"{tag} {who}: file date is exactly {when}", rec["status"] == "ok" and dates == {when},
+                  (rec["status"], rec["error"], dates))
+        vol1 = os.path.join(out, f"{nm}v.part1.rar")
+        r = ls(vol1)
+        check(f"{tag} rar set has several volumes", len(r["volumes"]) >= 3, r["volumes"])
+        only(r, "RAR5 volume set (unrar)")
+        check(f"{tag} rar set: year stays", r["newest"][:4] == when[:4], r["newest"])
+        saved_tools = dict(eng.tools)
+        eng.tools["7z"] = None                      # unrar alone must be able to read a set
+        r = ls(vol1)
+        eng.tools.update(saved_tools)
+        only(r, "RAR5 volume set without 7z")
+        eng.tools["unrar"] = None
+        r = ls(vol1)
+        eng.tools.update(saved_tools)
+        only(r, "RAR5 volume set via 7z fallback")
+        only(ls(os.path.join(out, f"{nm}.7z")), "7z")
+        only(ls(os.path.join(out, f"{nm}-cli.zip")), "zip (extended timestamp)")
+        only(ls(os.path.join(out, f"{nm}-dos.zip")), "zip (DOS time only)")
+finally:
+    if old_tz is None:
+        os.environ.pop("TZ", None)
+    else:
+        os.environ["TZ"] = old_tz
+    time.tzset()
+
 shutil.rmtree(work, ignore_errors=True)
 print("\nALL PASSED" if not FAILS else f"\nFAILED: {FAILS}")
 sys.exit(1 if FAILS else 0)
