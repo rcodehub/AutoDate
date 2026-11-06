@@ -1,8 +1,8 @@
-"""Smoke test of the placeholder engine (scan flow, index, remembered state, disposal helpers).
+"""Engine tests: scan flow, index reuse / vanished archives, query, remembered failures, disposal helpers.
 Run:  python3 -I tests/test_engine.py
 
-The real listing / rename / delete behaviour is tested by the engine agent in new files (test_formats.py,
-test_actions.py ...); this file only proves the scaffold runs end to end."""
+Listing of every format is tested in test_formats.py, rename / delete in test_actions.py."""
+import subprocess
 import os
 import shutil
 import sys
@@ -49,6 +49,18 @@ def touch(path, data=b"x", age_days=0):
         os.utime(path, (t, t))
 
 
+def make_rar(path, parts=1):
+    """A real rar (or a two-part set) next to `path`, made in a scratch folder."""
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = tempfile.mkdtemp(prefix="mkrar-")
+    with open(os.path.join(tmp, "f.bin"), "wb") as f:
+        f.write(os.urandom(30000))
+    os.utime(os.path.join(tmp, "f.bin"), (time.mktime((2015, 1, 2, 8, 0, 0, 0, 0, -1)),) * 2)
+    args = ["rar", "a", "-ma5", "-ep", "-idq"] + (["-v20k"] if parts > 1 else [])
+    subprocess.run(args + [path, os.path.join(tmp, "f.bin")], check=True, cwd=tmp, stdin=subprocess.DEVNULL)
+    shutil.rmtree(tmp)
+
+
 def make_zip(path):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with zipfile.ZipFile(path, "w") as z:
@@ -83,8 +95,7 @@ shutil.rmtree(os.path.join(src, "sets"))
 # --- a scan: finds first volumes only, skips excluded folders, fills the index
 make_zip(os.path.join(src, "one.zip"))
 make_zip(os.path.join(src, "sub", "two.zip"))
-touch(os.path.join(src, "sub", "big.part1.rar"))
-touch(os.path.join(src, "sub", "big.part2.rar"))
+make_rar(os.path.join(src, "sub", "big.rar"), parts=2)
 make_zip(os.path.join(src, "@eaDir", "skipme.zip"))
 make_zip(os.path.join(src, ".Recycle.Bin", "skipme.zip"))
 make_zip(os.path.join(src, ".autodate-work", "skipme.zip"))
@@ -100,7 +111,8 @@ rec = idx[os.path.join(src, "sub", "big.part1.rar")]
 check("record shape", {"path", "volumes", "type", "archive_date", "size", "sig", "status", "error", "entry_count", "file_count",
                        "folder_count", "oldest", "newest", "oldest_any", "newest_any", "age_years", "age_years_oldest",
                        "encrypted", "partial", "truncated", "entries"} <= set(rec)
-      and rec["type"] == "rar" and len(rec["volumes"]) == 2 and rec["size"] == 2 and rec["status"] == "ok", rec)
+      and rec["type"] == "rar" and len(rec["volumes"]) == 2 and rec["size"] > 20000 and rec["status"] == "ok"
+      and rec["entry_count"] == 1 and rec["oldest"] == "2015-01-02 08:00:00", rec)
 check("index file saved atomically", os.path.isfile(os.path.join(data, "index.json"))
       and not os.path.exists(os.path.join(data, "index.json.tmp")))
 check("history entry is a scan", eng.history[-1]["type"] == "scan" and eng.history[-1]["listed"] == 3)
@@ -121,19 +133,9 @@ check("a changed archive is listed again", snap["listed"] == 1 and snap["unchang
 bad = os.path.join(src, "bad.zip")
 touch(bad, b"not a zip")
 real_list = eng2.list_archive
-
-
-def failing(path, cfg, slot=None):
-    r = real_list(path, cfg, slot)
-    if path == bad:
-        r.update(status="failed", error="damaged")
-    return r
-
-
-eng2.list_archive = failing
 snap = run(eng2, cfg, "manual")
 check("failure is reported and stored in the index", snap["failed"] == 1 and eng2.index_get(bad)["status"] == "failed"
-      and snap["failures"][0]["error"] == "damaged", snap["failures"])
+      and "archive" in snap["failures"][0]["error"].lower(), snap["failures"])
 snap = run(eng2, cfg, "schedule")
 check("scheduled scan skips a remembered failure", snap["skipped"] == 1 and snap["failed"] == 0, snap)
 snap = run(eng2, cfg, "manual")
@@ -141,7 +143,7 @@ check("Run now retries it", snap["failed"] == 1 and snap["skipped"] == 0, snap)
 touch(bad, b"changed content")
 snap = run(eng2, cfg, "schedule")
 check("a changed signature is retried by scheduled scans", snap["failed"] == 1 and snap["skipped"] == 0, snap)
-eng2.list_archive = real_list
+make_zip(bad)
 snap = run(eng2, cfg, "manual")
 check("it is listed fine once it lists fine", snap["failed"] == 0 and eng2.index_get(bad)["status"] == "ok", snap)
 
@@ -233,15 +235,85 @@ check("outdated: by newest / by oldest / no dates",
       and E.Engine.is_outdated(rec, {"outdated_years": 5, "outdated_by": "oldest"})
       and not E.Engine.is_outdated({"newest": None, "oldest": None}, {"outdated_years": 5, "outdated_by": "newest"}))
 
-# --- the TODO stubs say so
-for name, args in (("index_query", ()), ("check_action_paths", ([], cfg)), ("delete_archives", ([], cfg)),
-                   ("rename_archives", ([], "newest", cfg)), ("rescan", ([], cfg))):
-    try:
-        getattr(eng2, name)(*args)
-        raised = False
-    except NotImplementedError:
-        raised = True
-    check(f"stub {name} is marked TODO", raised)
+# --- index: vanished archives are dropped at the end of a full scan (not after a one-off or stopped scan)
+gone = os.path.join(src, "sub", "two.zip")
+os.remove(gone)
+run(eng2, cfg, "one-off", {"path": src, "recursive": True})
+check("a one-off scan keeps vanished archives", eng2.index_get(gone) is not None)
+snap = run(eng2, cfg, "manual")
+check("a full scan drops vanished archives", eng2.index_get(gone) is None and snap["result"] == "completed")
+eng3 = Engine(os.path.join(data, "logs"), os.path.join(data, "history.json"))
+check("the drop was saved", gone not in eng3.index_load())
+
+# --- index file hardening: a damaged file is moved aside, the app starts empty
+with open(os.path.join(data, "index.json"), "w") as f:
+    f.write("{not json")
+eng4 = Engine(os.path.join(data, "logs"), os.path.join(data, "history.json"))
+check("damaged index starts empty", eng4.index_load() == {})
+check("damaged index kept aside", any(n.startswith("index.json.corrupt-") for n in os.listdir(data)))
+eng2.index_save(force=True)
+
+# --- index_query: filter, sort, paging
+qroot = os.path.join(work, "q")
+qeng = Engine(os.path.join(work, "qdata", "logs"), os.path.join(work, "qdata", "history.json"))
+now = time.time()
+yr = 365.25 * 86400
+
+
+def mkrec(name, folder, newest_years, files, size, typ="zip", status="ok", enc=False):
+    p = os.path.join(qroot, folder, name)
+    r = E.blank_record(p, [p], [size, 1])
+    nd = E.epoch_to_str(now - newest_years * yr) if newest_years is not None else None
+    r.update(type=typ, status=status, file_count=files, entry_count=files, size=size, encrypted=enc,
+             archive_date=E.epoch_to_str(now), newest=nd, oldest=nd, newest_any=nd, oldest_any=nd,
+             age_years=E._years(E.epoch_to_str(now), nd), entries=[{"name": "x", "folder": False, "size": 1, "date": nd}])
+    qeng.index_put(r)
+    return p
+
+
+mkrec("Alpha.zip", "a", 10, 5, 100)
+mkrec("beta.rar", "a", 2, 50, 300, "rar")
+mkrec("Gamma.tar.gz", "b c", 7, 1, 200, "tar")
+mkrec("delta.7z", "b c", None, 9, 50, "7z")
+mkrec("broken.zip", "b", None, 0, 10, status="failed")
+mkrec("locked.rar", "b", None, 0, 20, "rar", enc=True)
+qcfg = base_cfg(outdated_years=5)
+names = lambda r: [i["name"] for i in r["items"]]
+r = qeng.index_query(cfg=qcfg)
+check("query: default sort by name, total, no entries, volumes int", names(r) == ["Alpha.zip", "beta.rar", "broken.zip", "delta.7z",
+      "Gamma.tar.gz", "locked.rar"] and r["total"] == 6 and all("entries" not in i and i["volumes"] == 1 for i in r["items"]), names(r))
+check("query: summary", r["summary"] == {"archives": 6, "outdated": 2, "failed": 1, "bytes": 680}, r["summary"])
+check("query: sort newest asc, unknown last", names(qeng.index_query(sort="newest", cfg=qcfg))[:3] == ["Alpha.zip", "Gamma.tar.gz", "beta.rar"]
+      and set(names(qeng.index_query(sort="newest", cfg=qcfg))[3:]) == {"delta.7z", "broken.zip", "locked.rar"})
+d = qeng.index_query(sort="newest", desc=True, cfg=qcfg)
+check("query: sort newest desc, unknown still last", names(d)[:3] == ["beta.rar", "Gamma.tar.gz", "Alpha.zip"], names(d))
+check("query: sort age_years desc", names(qeng.index_query(sort="age_years", desc=True, cfg=qcfg))[:2] == ["Alpha.zip", "Gamma.tar.gz"])
+check("query: sort files / size / folder", names(qeng.index_query(sort="files", desc=True, cfg=qcfg))[0] == "beta.rar"
+      and names(qeng.index_query(sort="size", cfg=qcfg))[0] == "broken.zip"
+      and names(qeng.index_query(sort="folder", cfg=qcfg))[0] == "Alpha.zip")
+check("query: unknown sort field falls back to name", names(qeng.index_query(sort="bogus", cfg=qcfg))[0] == "Alpha.zip")
+check("query: text matches name case-insensitively", names(qeng.index_query(q="GAMMA", cfg=qcfg)) == ["Gamma.tar.gz"])
+check("query: text matches folder", names(qeng.index_query(q="b c", cfg=qcfg)) == ["delta.7z", "Gamma.tar.gz"])
+check("query: outdated only", names(qeng.index_query(outdated=True, cfg=qcfg)) == ["Alpha.zip", "Gamma.tar.gz"])
+check("query: outdated by oldest setting / 1 year", len(qeng.index_query(outdated=True, cfg=base_cfg(outdated_years=1))["items"]) == 3)
+check("query: type filter", names(qeng.index_query(type="rar", cfg=qcfg)) == ["beta.rar", "locked.rar"])
+check("query: status filters", names(qeng.index_query(status="failed", cfg=qcfg)) == ["broken.zip"]
+      and names(qeng.index_query(status="encrypted", cfg=qcfg)) == ["locked.rar"]
+      and len(qeng.index_query(status="ok", cfg=qcfg)["items"]) == 4)
+pg = qeng.index_query(offset=2, limit=2, cfg=qcfg)
+check("query: paging keeps the total", names(pg) == ["broken.zip", "delta.7z"] and pg["total"] == 6, names(pg))
+check("query: item fields", {"outdated", "volumes", "files", "age_years", "archive_date", "oldest", "newest"} <= set(r["items"][0]))
+check("query: outdated flag", [i["outdated"] for i in qeng.index_query(sort="newest", cfg=qcfg)["items"]][:3] == [True, True, False])
+check("query: bad paging values are tolerated", qeng.index_query(offset="x", limit="y", cfg=qcfg)["total"] == 6)
+
+# --- dates helpers
+check("parse_date", E.parse_date("2016-03-14 09:00:00.0000000") == "2016-03-14 09:00:00"
+      and E.parse_date("2015-01-02 08:00:00,000000000") == "2015-01-02 08:00:00"
+      and E.parse_date("") is None and E.parse_date("1980-01-01 00:00:00") is None
+      and E.parse_date("1970-01-01 00:00:00") is None and E.parse_date("2016-13-45 00:00:00") is None)
+check("rename base / year", E.rename_base("a.part1.rar") == "a" and E.rename_base("a.7z.001") == "a"
+      and E.rename_base("a.tar.gz") == "a" and E.rename_base("a.TGZ") == "a" and E.new_base("a (2010)", 2016) == "a (2016)"
+      and E.new_base("a", 2016) == "a (2016)" and E.new_base("a (x)", 2016) == "a (x) (2016)")
 
 shutil.rmtree(work)
 print("\nALL PASSED" if not FAILS else f"\nFAILED: {FAILS}")
