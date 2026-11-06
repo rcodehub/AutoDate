@@ -1,0 +1,16 @@
+services:
+  autodate:
+    image: ghcr.io/rcodehub/autodate:latest
+    container_name: autodate
+    restart: unless-stopped
+    ports:
+      - "8846:8080"                                # web UI
+    environment:
+      - TZ=America/New_York
+      - UI_USERNAME=admin
+      - UI_PASSWORD=change-me                      # blank = no login
+    volumes:
+      - /mnt/user/appdata/autodate:/data           # settings, index, history, stats, logs
+      - /mnt/user/downloads:/downloads             # folder to scan
+      - /mnt/user/trash:/trash                     # optional: deleted archives are moved here
+      # - /mnt/user:/mnt/user                      # optional: all shares (Scan folder on any share, Recycle Bins)

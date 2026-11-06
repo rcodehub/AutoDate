@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sign in - AutoDate</title>
+<meta name="theme-color" content="#ffffff">
+<script src="/static/theme.js"></script>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230f766e'/%3E%3Cpath d='M9 8h10l4 4v12H9z' fill='none' stroke='white' stroke-width='2' stroke-linejoin='round'/%3E%3Cpath d='M14 8v3h-2v2h2v2h-2v2h2' stroke='white' stroke-width='1.5' fill='none'/%3E%3C/svg%3E">
+<style>
+:root { --bg:#f4f6f8; --panel:#fff; --text:#17202a; --muted:#5d6b7a; --line:#dde3ea; --accent:#0f766e; --accent-ink:#fff; --bad:#b42318; --bad-soft:#fde8e6; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-mode]) { --bg:#11161c; --panel:#1a222b; --text:#e6ebf0; --muted:#93a1b0; --line:#2b3643; --accent:#2dd4bf; --accent-ink:#052e2a; --bad:#f87171; --bad-soft:#3b1a1a; }
+}
+* { box-sizing: border-box; }
+body { margin:0; min-height:100vh; display:grid; place-items:center; padding:16px; background:var(--bg-fill, var(--bg)) fixed; color:var(--text);
+  font:15px/1.45 var(--font, system-ui,-apple-system,"Segoe UI",Roboto,sans-serif); }
+form { width:min(360px,100%); background:var(--panel); border:var(--bw,1px) solid var(--line); border-radius:var(--radius,12px); box-shadow:var(--shadow,none); backdrop-filter:blur(var(--blur,0px)); padding:26px 24px; }
+h1 { font-size:19px; margin:0 0 4px; } p { margin:0 0 18px; color:var(--muted); font-size:14px; }
+label { display:block; font-weight:600; margin:0 0 4px; }
+input { font:inherit; color:var(--text); background:var(--bg); border:1px solid var(--line); border-radius:var(--radius-sm,8px); padding:9px 11px; width:100%; margin-bottom:14px; }
+input:focus { outline:2px solid var(--accent); outline-offset:-1px; }
+button { font:inherit; font-weight:600; width:100%; border:0; border-radius:var(--radius-sm,8px); padding:10px; background:var(--accent); color:var(--accent-ink); cursor:pointer; }
+.err { background:var(--bad-soft); color:var(--bad); border-radius:var(--radius-sm,8px); padding:9px 12px; margin-bottom:14px; font-size:14px; }
+</style>
+</head>
+<body>
+<form method="post" action="/login">
+  <h1>AutoDate</h1>
+  <p>Sign in to continue.</p>
+  <div id="err" class="err" hidden></div>
+  <label for="username">Username</label>
+  <input id="username" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" autofocus required>
+  <label for="password">Password</label>
+  <input id="password" name="password" type="password" autocomplete="current-password" required>
+  <button type="submit">Sign in</button>
+</form>
+<script>
+const e = new URLSearchParams(location.search).get("e");
+const msg = { bad: "Wrong username or password.", locked: "Too many failed attempts. Wait a few minutes and try again." }[e];
+if (msg) { const el = document.getElementById("err"); el.textContent = msg; el.hidden = false; }
+</script>
+</body>
+</html>

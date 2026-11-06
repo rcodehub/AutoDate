@@ -1,0 +1,74 @@
+name: Build and publish image
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: sudo add-apt-repository -y multiverse && sudo apt-get update && sudo apt-get install -y unzip zip unrar 7zip rar
+      - run: pip install -r requirements.txt
+      - name: Run every test
+        run: |
+          set -e
+          for t in tests/test_*.py; do
+            echo "=== $t"
+            python3 -I "$t"
+          done
+
+  publish:
+    needs: test
+    runs-on: ubuntu-latest
+    env:
+      # Optional: add repository secrets DOCKERHUB_USERNAME and DOCKERHUB_TOKEN to also publish to Docker Hub
+      DH_USER: ${{ secrets.DOCKERHUB_USERNAME }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/login-action@v3
+        if: ${{ env.DH_USER != '' }}
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ghcr.io/${{ github.repository_owner }}/autodate
+            ${{ env.DH_USER != '' && format('{0}/autodate', env.DH_USER) || '' }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=semver,pattern={{version}}
+            type=sha
+            type=raw,value=build-${{ github.run_number }}
+      - id: build
+        run: echo "date=$(date -u +%Y-%m-%dT%H:%MZ)" >> "$GITHUB_OUTPUT"
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            BUILD_NUMBER=${{ github.run_number }}
+            BUILD_SHA=${{ github.sha }}
+            BUILD_DATE=${{ steps.build.outputs.date }}

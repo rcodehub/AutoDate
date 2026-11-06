@@ -1,0 +1,1173 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AutoDate</title>
+<meta name="theme-color" content="#ffffff">
+<script src="/static/theme.js"></script>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230f766e'/%3E%3Cpath d='M9 8h10l4 4v12H9z' fill='none' stroke='white' stroke-width='2' stroke-linejoin='round'/%3E%3Cpath d='M14 8v3h-2v2h2v2h-2v2h2' stroke='white' stroke-width='1.5' fill='none'/%3E%3C/svg%3E">
+<style>
+:root {
+  --bg: #f4f6f8; --panel: #ffffff; --text: #17202a; --muted: #5d6b7a; --line: #dde3ea;
+  --accent: #0f766e; --accent-ink: #ffffff; --accent-soft: #d9f0ed;
+  --warn: #b45309; --warn-soft: #fef3c7; --bad: #b42318; --bad-soft: #fde8e6; --ok: #15803d;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --radius: 10px;
+}
+@media (max-width: 420px) { .tiles { grid-template-columns: 1fr 1fr; } .tile .v { font-size: 20px; } .hero b { font-size: 44px; } }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-mode]) {
+    --bg: #11161c; --panel: #1a222b; --text: #e6ebf0; --muted: #93a1b0; --line: #2b3643;
+    --accent: #2dd4bf; --accent-ink: #052e2a; --accent-soft: #12332f;
+    --warn: #fbbf24; --warn-soft: #3a2e10; --bad: #f87171; --bad-soft: #3b1a1a; --ok: #4ade80;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg-fill, var(--bg)) fixed; color: var(--text); min-height: 100vh;
+  font: 15px/1.45 var(--font, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif); }
+header { background: var(--panel); border-bottom: var(--bw, 1px) solid var(--line); position: sticky; top: 0; z-index: 5;
+  backdrop-filter: blur(var(--blur, 0px)); -webkit-backdrop-filter: blur(var(--blur, 0px)); }
+.wrap { max-width: var(--maxw, 1600px); margin: 0 auto; padding-left: clamp(16px, 2.2vw, 32px); padding-right: clamp(16px, 2.2vw, 32px); }
+.top { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 14px 0; }
+h1 { font-size: 18px; margin: 0; letter-spacing: .2px; }
+.pill { font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 99px;
+  background: var(--accent-soft); color: var(--accent); }
+.pill.run { background: var(--accent); color: var(--accent-ink); }
+.pill.stop { background: var(--warn-soft); color: var(--warn); }
+.spacer { flex: 1; }
+.buildtag { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.buildtag a { color: inherit; text-decoration: none; } .buildtag a:hover { text-decoration: underline; }
+button { font: inherit; border: 1px solid var(--line); background: var(--panel); color: var(--text);
+  padding: 7px 14px; border-radius: var(--radius-sm, 8px); cursor: pointer; }
+button:hover:not(:disabled) { border-color: var(--accent); }
+button:disabled { opacity: .45; cursor: not-allowed; }
+button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+button.danger { color: var(--bad); }
+button.small { padding: 4px 10px; font-size: 13px; }
+nav { display: flex; gap: 4px; }
+nav button { border: 0; border-bottom: 3px solid transparent; border-radius: 0; background: none;
+  padding: 10px 14px; color: var(--muted); font-weight: 600; }
+nav button.on { color: var(--text); border-bottom-color: var(--accent); }
+main { padding: var(--gap, 18px) 0 60px; }
+.tab { display: none; } .tab.on { display: block; }
+.grid { display: grid; gap: var(--gap, 14px); }
+.cards { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+.card { background: var(--panel); border: var(--bw, 1px) solid var(--line); border-radius: var(--radius); padding: var(--pad, 14px 16px);
+  box-shadow: var(--shadow, none); backdrop-filter: blur(var(--blur, 0px)); -webkit-backdrop-filter: blur(var(--blur, 0px)); min-width: 0; }
+.card h3 { margin: 0 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); }
+.big { font-size: 20px; font-weight: 650; }
+.muted { color: var(--muted); } .small { font-size: 13px; }
+.path { font-family: var(--mono); font-size: 13px; word-break: break-all; }
+section.card { margin-top: var(--gap, 14px); }
+section.card > h2 { font-size: 15px; margin: 0 0 10px; }
+.bar { height: 12px; border-radius: 99px; background: var(--line); overflow: hidden; }
+.bar > i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .4s; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px 22px; margin-top: 12px; }
+.chips b { font-size: 18px; display: block; line-height: 1.1; }
+.chips span { font-size: 12px; color: var(--muted); }
+table { width: 100%; border-collapse: collapse; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-size: 12px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); font-weight: 600; }
+tr:last-child td { border-bottom: 0; }
+td.n { width: 70px; white-space: nowrap; } td.t { width: 80px; white-space: nowrap; text-align: right; font-variant-numeric: tabular-nums; }
+.idle { color: var(--muted); }
+.log { background: #0d1117; color: #d0d7de; font: 12.5px/1.5 var(--mono); border-radius: var(--radius-sm, 8px);
+  padding: 10px 12px; height: 340px; overflow: auto; white-space: pre-wrap; word-break: break-all; }
+/* stats */
+.hero { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
+.hero b { font-size: 52px; font-weight: 650; line-height: 1.05; letter-spacing: -1px; }
+.hero span { color: var(--muted); }
+.tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; margin-top: 14px; }
+.tile { border: 1px solid var(--line); border-radius: var(--radius-sm, 8px); padding: 10px 12px; }
+.tile .l { font-size: 13px; color: var(--muted); }
+.tile .v { font-size: 24px; font-weight: 650; margin-top: 2px; }
+.tile .s { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.charthead { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 6px; }
+.charthead h2 { margin: 0; margin-right: auto; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: var(--radius-sm, 8px); overflow: hidden; }
+.seg button { border: 0; border-radius: 0; padding: 5px 12px; font-size: 13px; }
+.seg button.on { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.chart { position: relative; }
+.chart svg { display: block; width: 100%; height: 220px; overflow: visible; }
+.chart .grid { stroke: var(--line); stroke-width: 1; }
+.chart .ax { fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.chart .col { fill: var(--accent); }
+.chart .col.today { fill: var(--accent); }
+.chart .hit { fill: transparent; cursor: default; }
+.chart .hit:hover + .col, .chart .col.hover { opacity: .75; }
+.tip { position: absolute; pointer-events: none; background: var(--panel-solid, var(--panel)); border: 1px solid var(--line);
+  border-radius: var(--radius-sm, 8px); padding: 8px 10px; font-size: 13px; box-shadow: 0 4px 16px rgba(0,0,0,.15);
+  white-space: nowrap; display: none; z-index: 2; }
+.tip b { display: block; margin-bottom: 2px; }
+.types { display: grid; grid-template-columns: max-content 1fr max-content; gap: 8px 12px; align-items: center; }
+.types .track { height: 14px; }
+.types .fill { height: 14px; background: var(--accent); border-radius: 0 4px 4px 0; min-width: 2px; }
+.types .n { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.rec { display: grid; grid-template-columns: max-content max-content 1fr; gap: 6px 14px; font-size: 14px; }
+.rec .path { overflow-wrap: anywhere; }
+.loghead { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
+.loghead h2 { margin: 0; margin-right: auto; }
+.loghead label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+.hostpaths { display: grid; grid-template-columns: fit-content(55%) minmax(0, 1fr); gap: 4px 14px; margin: 4px 0 12px; font-size: 14px; }
+.hostpaths .na { color: var(--muted); font-style: italic; }
+.hostpaths > span { overflow-wrap: anywhere; }
+.log .warn { color: #fbbf24; } .log .error { color: #f87171; } .log .ts { color: #6e7b8a; }
+.banner { padding: 10px 14px; border-radius: var(--radius-sm, 8px); margin-bottom: 12px; font-size: 14px; }
+.banner.warn { background: var(--warn-soft); color: var(--warn); }
+.banner.bad { background: var(--bad-soft); color: var(--bad); }
+.banner.ok { background: var(--accent-soft); color: var(--accent); }
+.fail { padding: 6px 0; border-bottom: 1px solid var(--line); } .fail:last-child { border: 0; }
+.fail .err { color: var(--bad); font-size: 13px; }
+/* settings */
+.field { margin: 0 0 14px; }
+.field > label { display: block; font-weight: 600; margin-bottom: 4px; }
+.hint { font-size: 13px; color: var(--muted); margin-top: 3px; }
+input[type=text], input[type=number], select, textarea {
+  font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--line);
+  border-radius: var(--radius-sm, 8px); padding: 7px 10px; width: 100%; }
+input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+input.num { width: 120px; } input.mode { width: 90px; font-family: var(--mono); }
+textarea { font-family: var(--mono); font-size: 13px; min-height: 84px; resize: vertical; }
+.row { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; }
+.row input { flex: 1; }
+.check { display: flex; gap: 8px; align-items: flex-start; margin-bottom: 10px; }
+.check input { margin-top: 4px; } .check label { font-weight: 600; }
+.two { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0 18px; }
+.savebar { position: sticky; bottom: 0; background: var(--panel-solid, var(--panel)); padding: 12px 16px; margin-top: var(--gap, 14px);
+  border: var(--bw, 1px) solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow, none); display: flex; gap: 12px; align-items: center; }
+.missing { color: var(--bad); font-size: 13px; margin: -2px 0 8px; }
+.okline { color: var(--ok); font-size: 13px; margin: -2px 0 8px; }
+.warnline { color: var(--warn); font-size: 13px; margin: -2px 0 8px; }
+.mounts { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); }
+.mounts h3 { font-size: 14px; margin: 0 0 4px; }
+.mrow { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 7px 0; border-bottom: 1px solid var(--line); }
+.mrow:last-child { border-bottom: 0; }
+.mrow .path { flex: 1 1 220px; }
+.badge { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 99px; background: var(--warn-soft); color: var(--warn); }
+.dlg-m { padding: 10px 14px 0; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.dlg-m span { font-size: 12px; color: var(--muted); }
+/* dialog */
+dialog { border: var(--bw, 1px) solid var(--line); border-radius: var(--radius); background: var(--panel-solid, var(--panel)); color: var(--text);
+  width: min(560px, 94vw); padding: 0; }
+dialog::backdrop { background: rgba(0,0,0,.5); }
+.dlg-h { padding: 12px 16px; border-bottom: 1px solid var(--line); font-weight: 600; }
+.dlg-b { padding: 8px 8px; max-height: 50vh; overflow: auto; }
+#dlgList > div { padding: 6px 10px; border-radius: 6px; cursor: pointer; font-family: var(--mono); font-size: 13px; }
+#dlgList > div:hover { background: var(--accent-soft); }
+.dlg-f { padding: 12px 16px; border-top: 1px solid var(--line); display: flex; gap: 8px; justify-content: flex-end; align-items: center; }
+.dlg-f .path { margin-right: auto; }
+@media (max-width: 560px) { .top button { padding: 6px 10px; } }
+/* wide layout: use the width of the screen */
+.statusgrid > *, .setgrid > * { min-width: 0; }
+@media (min-width: 1100px) {
+  .statusgrid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr); gap: var(--gap, 14px); align-items: start; }
+  .statusgrid .logcol { position: sticky; top: 118px; }
+  .statusgrid .logcol > .card { margin-top: 0; }
+  .statusgrid .logcol .log { height: calc(100vh - 210px); min-height: 340px; }
+  .setgrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 var(--gap, 14px); align-items: start; }
+  .setgrid .span2 { grid-column: 1 / -1; }
+  .mountsplit { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 24px; align-items: start; }
+  .mountsplit .mounts { margin-top: 0; padding-top: 0; border-top: 0; padding-left: 24px; border-left: var(--bw, 1px) solid var(--line); }
+}
+@media (min-width: 1700px) { .setgrid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+/* appearance panel */
+.iconbtn { width: 36px; padding: 6px 0; text-align: center; }
+.tpanel { position: fixed; top: 0; right: 0; bottom: 0; width: min(380px, 100vw); z-index: 20; overflow: auto;
+  background: var(--panel-solid, var(--panel)); color: var(--text); border-left: var(--bw, 1px) solid var(--line);
+  box-shadow: -8px 0 30px rgb(0 0 0 / .18); padding: 16px 18px 30px; }
+.tpanel[hidden] { display: none; }
+.tpanel h2 { font-size: 17px; margin: 0; }
+.tpanel h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); margin: 18px 0 8px; }
+.tp-head { display: flex; align-items: center; justify-content: space-between; }
+.tp-themes { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.tp-card { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; text-align: left; font-size: 13px; padding: 8px 10px; }
+.tp-card[aria-pressed="true"] { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
+.tp-sw { display: flex; width: 100%; height: 22px; border-radius: var(--radius-sm, 6px); overflow: hidden; border: 1px solid var(--line); }
+.tp-sw i { flex: 1; }
+.tpanel .seg { display: flex; flex-wrap: wrap; }
+.tpanel .seg button { flex: 1; }
+.tpanel input[type=range] { width: 100%; accent-color: var(--accent); }
+.tp-foot { margin-top: 22px; display: flex; gap: 8px; align-items: center; }
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <div class="top">
+      <h1>AutoDate</h1>
+      <span id="pill" class="pill">Idle</span>
+      <span id="build" class="buildtag"></span>
+      <span class="spacer"></span>
+      <button id="btnRun" class="primary">Run now</button>
+      <button id="btnOne" title="Scan the archives in one folder you pick, right now, independent of the source folders and the schedule">Scan folder…</button>
+      <button id="btnStop" class="danger" disabled>Stop</button>
+      <button id="btnMode" class="iconbtn" title="Switch light / dark" aria-label="Switch light / dark">☾</button>
+      <button id="btnTheme" aria-controls="themePanel" aria-expanded="false">Theme</button>
+      <button id="btnLogout" hidden>Log out</button>
+    </div>
+    <nav>
+      <button data-tab="status" class="on">Status</button>
+      <button data-tab="archives">Archives</button>
+      <button data-tab="settings">Settings</button>
+      <button data-tab="history">History</button>
+      <button data-tab="stats">Stats</button>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap">
+  <div id="banner"></div>
+
+  <!-- STATUS -->
+  <div id="tab-status" class="tab on">
+    <div class="statusgrid"><div>
+    <div class="grid cards">
+      <div class="card"><h3>Next scan</h3><div id="next" class="big">-</div><div id="nextSub" class="muted small"></div></div>
+      <div class="card"><h3>Last scan</h3><div id="last" class="big">-</div><div id="lastSub" class="muted small"></div></div>
+      <div class="card"><h3>Current folder</h3><div id="curdir" class="path">-</div><div id="curpass" class="muted small"></div></div>
+    </div>
+
+    <section class="card">
+      <h2>Progress</h2>
+      <div class="bar"><i id="barfill"></i></div>
+      <div class="chips">
+        <div><b id="cDone">0</b><span>done</span></div>
+        <div><b id="cFound">0</b><span>found</span></div>
+        <div><b id="cLeft">0</b><span>remaining</span></div>
+        <div><b id="cExt">0</b><span>listed</span></div>
+        <div><b id="cFail">0</b><span>failed</span></div>
+        <div><b id="cOut">0</b><span>outdated</span></div>
+        <div><b id="cDef">0</b><span>too recent (skipped)</span></div>
+        <div id="cCanBox" hidden><b id="cCan">0</b><span>cancelled</span></div>
+        <div id="cSkBox" hidden><b id="cSk">0</b><span>skipped</span></div>
+        <div id="cUnBox" hidden><b id="cUn">0</b><span>unchanged</span></div>
+        <div><b id="cData">0</b><span>entries read</span></div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Threads</h2>
+      <table><thead><tr><th>Thread</th><th>Working on</th><th style="text-align:right">Time</th><th></th></tr></thead>
+        <tbody id="threads"><tr><td colspan="4" class="idle">Not running</td></tr></tbody></table>
+    </section>
+
+    <section class="card" id="waitCard" hidden>
+      <h2>Waiting <span class="muted small">(changed too recently - may still be downloading)</span></h2>
+      <div id="waiting"></div>
+    </section>
+
+    <section class="card" id="failCard" hidden>
+      <h2>Failed archives <span class="muted small">(could not be read; scheduled scans skip them until they change)</span></h2>
+      <div id="fails"></div>
+    </section>
+
+    </div>
+    <div class="logcol">
+    <section class="card">
+      <div class="loghead"><h2>Log</h2>
+        <label class="small muted"><input type="checkbox" id="logFollow" checked> Keep scrolled to the newest</label>
+        <button class="small" id="btnClearLog" title="Empties this view. The log file in /data/logs is kept.">Clear log</button></div>
+      <div id="log" class="log"></div>
+    </section>
+    </div></div>
+  </div>
+
+  <!-- ARCHIVES -->
+  <div id="tab-archives" class="tab">
+    <section class="card" style="margin-top:0">
+      <!-- TODO(web agent): the Archives tab - summary chips, toolbar (search, Outdated only, type and status
+           filters), sortable table with expandable entries, Rename with year... / Delete... / Rescan selected
+           with preview dialogs. Backed by GET /api/archives, GET /api/archive, POST /api/archives/delete,
+           /rename, /rescan (all answer 501 until implemented). Keep it working at 375 px wide. -->
+      <h2>Archives</h2>
+      <div class="muted small">Coming soon: every scanned archive with the dates of the files inside it.</div>
+    </section>
+  </div>
+
+  <!-- SETTINGS -->
+  <div id="tab-settings" class="tab">
+    <div id="toolWarn"></div>
+    <div id="storeWarn"></div>
+    <div id="settingsErr"></div>
+
+    <div class="setgrid">
+    <section class="card span2">
+      <h2>Source folders</h2>
+      <div class="hint" style="margin:-4px 0 10px">Folders to scan, including all sub-folders. Use the <b>container path</b> - the path as seen <i>inside</i> this container - not the <span class="path">/mnt/user/...</span> path on your server. The list below shows what has been mapped.</div>
+      <div class="mountsplit"><div>
+      <div id="sources"></div>
+      <button id="addSource" class="small">+ Add folder</button>
+      </div>
+      <div class="mounts" id="mountsBox"></div></div>
+    </section>
+
+    <section class="card">
+      <h2>Schedule</h2>
+      <div class="check"><input type="checkbox" id="schedule_enabled"><div><label for="schedule_enabled">Scan automatically</label>
+        <div class="hint">Otherwise scans only run when you press Run now.</div></div></div>
+      <div class="two">
+        <div class="field"><label for="interval_minutes">Wait between scans (minutes)</label>
+          <input type="number" class="num" id="interval_minutes" min="1">
+          <div class="hint">Counted from the end of the previous scan.</div></div>
+        <div class="check" style="align-self:center"><input type="checkbox" id="run_on_start"><div><label for="run_on_start">Also scan at container start</label></div></div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Performance</h2>
+      <div class="two">
+        <div class="field"><label for="threads_in">Threads</label><input type="number" class="num" id="threads_in" min="1" max="32">
+          <div class="hint">Archives read at the same time. 2-4 is usually best on spinning disks.</div></div>
+        <div class="field"><label for="min_age_minutes">Skip archives newer than (minutes)</label><input type="number" class="num" id="min_age_minutes" min="0">
+          <div class="hint">Leaves archives that changed in the last N minutes for a later scan, so a download or copy that is still in progress is not read half-written. Skipped files are listed in the log. 0 = never skip (fine if your downloader only puts finished files in the scanned folder).</div></div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Dates &amp; outdated archives</h2>
+      <div class="check"><input type="checkbox" id="include_folders"><div><label for="include_folders">Include folder dates in oldest / newest</label>
+        <div class="hint">Off = only the dates of files count. Folder dates are always listed in the entries of an archive.</div></div></div>
+      <div class="two">
+        <div class="field"><label for="outdated_years">Outdated if contents are older than (years)</label><input type="number" class="num" id="outdated_years" min="0" max="200">
+          <div class="hint">Used for the highlighting and the "Outdated only" filter in Archives.</div></div>
+        <div class="field"><label for="outdated_by">Outdated means</label>
+          <select id="outdated_by"><option value="newest">Newest file is older than that</option><option value="oldest">Oldest file is older than that</option></select></div>
+        <div class="field"><label for="rename_use">Year used for renaming</label>
+          <select id="rename_use"><option value="newest">Newest file</option><option value="oldest">Oldest file</option></select>
+          <div class="hint">The default in the rename dialog: <span class="path">name (2016).zip</span>.</div></div>
+      </div>
+      <div class="field"><label for="exclude_dirs">Folders to skip</label><textarea id="exclude_dirs" spellcheck="false"></textarea>
+        <div class="hint">One per line, matched on the folder name. Wildcards allowed. <span class="path">.Recycle.Bin</span> and AutoDate's own work folders are always skipped.</div></div>
+    </section>
+
+    <section class="card">
+      <h2>Deleting archives</h2>
+      <div class="hint" style="margin:-4px 0 10px">Nothing is ever deleted or renamed unless you select archives in the Archives tab and confirm the preview.</div>
+      <div class="field"><label for="delete_mode">Deleted archives go to</label>
+        <select id="delete_mode"><option value="recycle">The share's Recycle Bin</option><option value="move">The move folder</option><option value="delete">Deleted permanently</option></select></div>
+      <div id="recycleInfo" class="field"></div>
+      <div class="field" id="moveField"><label for="move_dir">Move folder</label>
+        <div class="row"><input type="text" id="move_dir" placeholder="/trash"><button class="small" id="browseMove">Browse</button></div>
+        <div id="moveStatus"></div>
+        <div class="hint">Must be outside the source folders. Archives keep their folder layout under <span class="path">&lt;move folder&gt;/&lt;source folder name&gt;/...</span>; name clashes get a .1, .2 suffix.
+        Use the same kind of path as the sources (don't mix <span class="path">/mnt/user</span> and <span class="path">/mnt/diskN</span> mappings).</div></div>
+    </section>
+
+    </div>
+    <div class="savebar">
+      <button class="primary" id="btnSave">Save settings</button>
+      <span id="saveMsg" class="muted small"></span>
+    </div>
+    <div id="storeInfo" class="muted small" style="margin-top:6px"></div>
+  </div>
+
+  <!-- STATS -->
+  <div id="tab-stats" class="tab">
+    <section class="card" style="margin-top:0">
+      <div class="hero"><b id="sHero">0 B</b><span id="sHeroSub">archives read so far</span></div>
+      <div class="tiles" id="sTiles"></div>
+    </section>
+    <section class="card">
+      <div class="charthead"><h2 id="sChartTitle">Last 30 days</h2>
+        <div class="seg" id="sMetric">
+          <button data-m="archives" class="on">Archives</button><button data-m="entries">Entries</button><button data-m="renamed">Renamed</button><button data-m="deleted">Deleted</button>
+        </div></div>
+      <div class="chart" id="sChart"><div class="tip" id="sTip"></div></div>
+      <details style="margin-top:8px"><summary class="small muted">Show as table</summary>
+        <div style="overflow-x:auto;max-height:260px"><table><thead><tr><th>Day</th><th>Archives</th><th>Entries</th><th>Renamed</th><th>Deleted</th><th>Failed</th></tr></thead>
+        <tbody id="sTable"></tbody></table></div></details>
+    </section>
+    <div class="two" style="gap:14px">
+      <section class="card"><h2>Archive types</h2><div class="types" id="sTypes"></div></section>
+      <section class="card"><h2>Records</h2><div class="rec" id="sRecords"></div></section>
+    </div>
+    <section class="card" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+      <span class="muted small" id="sSince"></span><span class="spacer"></span>
+      <button class="small danger" id="sReset">Reset statistics</button>
+    </section>
+  </div>
+
+  <!-- HISTORY -->
+  <div id="tab-history" class="tab">
+    <section class="card" style="margin-top:0">
+      <h2>Scans and actions</h2>
+      <div style="overflow-x:auto"><table>
+        <thead><tr><th>Started</th><th>Type</th><th>Result</th><th>Found</th><th>Listed</th><th>Failed</th><th>Outdated</th><th>Size</th><th>Took</th></tr></thead>
+        <tbody id="hist"></tbody></table></div>
+    </section>
+  </div>
+</main>
+
+<aside id="themePanel" class="tpanel" aria-label="Appearance" hidden>
+  <div class="tp-head"><h2>Appearance</h2><button class="iconbtn" id="tpClose" aria-label="Close">✕</button></div>
+  <h3>Mode <span style="text-transform:none;letter-spacing:0;font-weight:400">(this browser)</span></h3>
+  <div class="seg" id="tpMode"><button data-v="auto">Auto</button><button data-v="light">Light</button><button data-v="dark">Dark</button></div>
+  <h3>Theme</h3>
+  <div class="tp-themes" id="tpThemes"></div>
+  <h3>Corners <span id="tpRadiusV" style="text-transform:none;letter-spacing:0;font-weight:400"></span></h3>
+  <input type="range" id="tpRadius" min="0" max="24" step="1">
+  <h3>Spacing</h3>
+  <div class="seg" data-k="density"><button data-v="compact">Compact</button><button data-v="comfortable">Comfortable</button><button data-v="spacious">Spacious</button></div>
+  <h3>Font</h3>
+  <div class="seg" data-k="font"><button data-v="">Theme</button><button data-v="system">System</button><button data-v="rounded">Rounded</button><button data-v="serif">Serif</button><button data-v="mono">Mono</button></div>
+  <h3>Shadows</h3>
+  <div class="seg" data-k="shadow"><button data-v="none">None</button><button data-v="soft">Soft</button><button data-v="strong">Strong</button></div>
+  <h3>Page width</h3>
+  <div class="seg" data-k="width"><button data-v="standard">Standard</button><button data-v="wide">Wide</button><button data-v="full">Full screen</button></div>
+  <div class="tp-foot"><button class="small" id="tpReset">Reset to defaults</button><span class="muted small" id="tpMsg"></span></div>
+  <div class="hint" style="margin-top:12px">The look is saved on the server (in /data/ui.json) and used in every browser. Light/dark mode is chosen per browser.</div>
+</aside>
+
+<dialog id="dlgOne">
+  <div class="dlg-h">Scan a folder now</div>
+  <div class="dlg-b" style="max-height:none;padding:12px 16px">
+    <p class="muted small" style="margin:0 0 10px">A one-off job. It ignores the source folders, the schedule and the "skip recent archives" setting, and uses your other settings. Nothing is changed or extracted: AutoDate only reads the dates inside the archives.</p>
+    <div class="field"><label for="onePath">Folder</label>
+      <div class="row"><input type="text" id="onePath" spellcheck="false" placeholder="/downloads/Some Folder"><button class="small" id="oneBrowse" type="button">Browse…</button></div>
+      <div id="oneStatus"></div></div>
+    <div class="check"><input type="checkbox" id="oneRec" checked><div><label for="oneRec">Include sub-folders</label>
+      <div class="hint">Off = only the archives directly in this folder.</div></div></div>
+    <div id="oneErr" class="missing" hidden></div>
+  </div>
+  <div class="dlg-f"><button id="oneCancel">Cancel</button><button class="primary" id="oneStart">Scan</button></div>
+</dialog>
+
+<dialog id="dlg">
+  <div class="dlg-h">Choose a folder</div>
+  <div class="dlg-m" id="dlgMounts"></div>
+  <div class="dlg-b" id="dlgList"></div>
+  <div class="dlg-f"><span class="path" id="dlgPath">/</span>
+    <button id="dlgCancel">Cancel</button><button class="primary" id="dlgOk">Select this folder</button></div>
+</dialog>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+
+// small DOM helper: h("div", {class:"x"}, "text", child...) - text is never parsed as HTML
+function h(tag, attrs, ...kids) {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (k.startsWith("on")) el.addEventListener(k.slice(2), v); else el.setAttribute(k, v);
+  }
+  for (const k of kids.flat()) el.append(k instanceof Node ? k : document.createTextNode(k ?? ""));
+  return el;
+}
+
+async function api(path, opts) {
+  const r = await fetch(path, opts);
+  let data = {};
+  try { data = await r.json(); } catch (e) { /* not JSON */ }
+  if (r.status === 401 && data.login) { location.href = "/login"; throw new Error("Login required"); }
+  if (!r.ok) { const err = new Error(data.error || (data.errors || []).join("; ") || r.statusText); err.data = data; throw err; }
+  return data;
+}
+const post = (path, body) => api(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) });
+
+function ago(t) {
+  if (!t) return "never";
+  const s = Math.max(0, Math.round(Date.now() / 1000 - t));
+  if (s < 60) return s + "s ago"; if (s < 3600) return Math.round(s / 60) + " min ago";
+  if (s < 86400) return Math.round(s / 3600) + " h ago"; return Math.round(s / 86400) + " d ago";
+}
+function dur(s) {
+  s = Math.round(s); if (s < 60) return s + "s";
+  if (s < 3600) return Math.floor(s / 60) + "m " + (s % 60) + "s";
+  return Math.floor(s / 3600) + "h " + Math.floor(s % 3600 / 60) + "m";
+}
+const fmtTime = (t) => t ? new Date(t * 1000).toLocaleString() : "-";
+let logCleared = 0;
+let serverSkew = 0;   // server clock - browser clock
+
+// ---------------------------------------------------------------- tabs
+document.querySelectorAll("nav button").forEach((b) => b.addEventListener("click", () => {
+  document.querySelectorAll("nav button").forEach((x) => x.classList.toggle("on", x === b));
+  document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("on", t.id === "tab-" + b.dataset.tab));
+  if (b.dataset.tab === "history") loadHistory();
+  if (b.dataset.tab === "stats") loadStats();
+}));
+
+let bannerTimer = null, connLost = false;
+function banner(kind, text, sticky) {
+  const el = $("banner"); el.replaceChildren(); clearTimeout(bannerTimer);
+  if (text) {
+    el.append(h("div", { class: "banner " + kind }, text));
+    if (!sticky) bannerTimer = setTimeout(() => el.replaceChildren(), 7000);
+  }
+}
+
+// ---------------------------------------------------------------- status
+let lastLog = 0, running = false;
+
+async function pollStatus() {
+  try {
+    const d = await api("/api/status");
+    serverSkew = d.now - Date.now() / 1000;
+    renderStatus(d);
+    if (connLost) { connLost = false; banner("", ""); }
+  } catch (e) { connLost = true; banner("bad", "Cannot reach the server: " + e.message, true); return; }
+  try {
+    const l = await api("/api/log?after=" + lastLog);
+    if (l.last < lastLog || l.cleared > logCleared) { logCleared = l.cleared; $("log").replaceChildren(); if (l.last < lastLog) lastLog = 0; }
+    appendLog(l.entries); lastLog = l.last;
+  } catch (e) { /* next poll */ }
+}
+
+let buildShown = "";
+function showBuild(b) {
+  const key = JSON.stringify(b || {});
+  if (!b || key === buildShown) return;
+  buildShown = key;
+  const el = $("build"); el.replaceChildren();
+  if (b.sha) {
+    el.append(h("a", { href: "https://github.com/rcodehub/AutoDate/commit/" + b.sha, target: "_blank", rel: "noopener",
+      title: "Commit " + b.sha + (b.date ? ", built " + new Date(b.date).toLocaleString() : "") }, "Build " + b.number));
+  } else {
+    el.append(h("span", { title: "Not built by the publish workflow" }, "Build " + b.number));
+  }
+}
+
+function renderWaiting(list, sched) {
+  $("waitCard").hidden = !list.length;
+  const key = JSON.stringify(list) + Math.floor(Date.now() / 30000);   // refresh the "in N min" text every 30 s
+  if ($("waiting").dataset.key === key) return;
+  $("waiting").dataset.key = key;
+  const now = Date.now() / 1000 + serverSkew;
+  const when = (t) => {
+    if (!t) return "";
+    const m = Math.ceil((t - now) / 60);
+    const ready = m <= 0 ? "old enough now" : "old enough in " + (m < 60 ? m + " min" : Math.floor(m / 60) + " h " + (m % 60) + " min");
+    return ready + (sched && sched.enabled ? " - picked up by the next scan after that" : " - run a scan after that");
+  };
+  $("waiting").replaceChildren(...list.map((g) => h("div", { class: "fail" },
+    h("div", { class: "path" }, g.dir),
+    h("div", { class: "small muted" }, g.count + " archive" + (g.count === 1 ? "" : "s") + ": " + g.names.join(", ")
+      + (g.count > g.names.length ? ", ..." : "") + (g.ready_at ? " - " + when(g.ready_at) : "")))));
+}
+
+function renderStatus(d) {
+  showBuild(d.build);
+  const e = d.engine, s = d.schedule;
+  running = e.state !== "idle";
+  const pill = $("pill");
+  pill.textContent = e.state === "idle" ? "Idle" : e.state === "stopping" ? "Stopping..." : "Scanning";
+  pill.className = "pill" + (e.state === "running" ? " run" : e.state === "stopping" ? " stop" : "");
+  $("btnRun").disabled = $("btnOne").disabled = running;
+  $("btnStop").disabled = e.state !== "running";
+
+  // cards
+  const now = Date.now() / 1000 + serverSkew;
+  if (running) { $("next").textContent = "Scanning now"; $("nextSub").textContent = "started " + ago(e.started_at - serverSkew); }
+  else if (!s.enabled) { $("next").textContent = "Manual only"; $("nextSub").textContent = "automatic scans are off"; }
+  else if (s.next_run) {
+    const left = s.next_run - now;
+    $("next").textContent = left <= 1 ? "Starting..." : "in " + dur(left);
+    $("nextSub").textContent = new Date(s.next_run * 1000).toLocaleString();
+  } else { $("next").textContent = "-"; $("nextSub").textContent = "add a source folder to start"; }
+
+  if (e.finished_at && !running) {
+    const label = { completed: "Completed", stopped: "Stopped", error: "Failed" }[e.result] || e.result;
+    $("last").textContent = label;
+    $("lastSub").textContent = ago(e.finished_at - serverSkew) + (e.message ? " - " + e.message : "");
+  } else if (!running) { $("last").textContent = "-"; $("lastSub").textContent = e.finished_at ? "" : "no scan since the container started"; }
+  $("curdir").textContent = e.current_dir || "-";
+  $("curpass").textContent = "";
+
+  // progress
+  $("cDone").textContent = e.done; $("cFound").textContent = e.found; $("cLeft").textContent = e.remaining;
+  $("cExt").textContent = e.listed; $("cFail").textContent = e.failed; $("cOut").textContent = e.outdated;
+  $("cDef").textContent = e.deferred;
+  $("cData").textContent = fmtNum(e.entries || 0);
+  $("cUnBox").hidden = !e.unchanged; $("cUn").textContent = e.unchanged || 0;
+  $("barfill").style.width = (e.found ? Math.min(100, e.done / e.found * 100) : 0) + "%";
+
+  // threads
+  $("cCanBox").hidden = !e.cancelled; $("cCan").textContent = e.cancelled || 0;
+  $("cSkBox").hidden = !e.skipped; $("cSk").textContent = e.skipped || 0;       // only when the server reports it
+  const tb = $("threads");
+  if (!e.slots.length) {
+    if (!tb.querySelector("td.none")) tb.replaceChildren(h("tr", {}, h("td", { colspan: 4, class: "idle none" }, "Not running")));
+  } else {
+    tb.querySelector("td.none")?.closest("tr")?.remove();
+    for (const sl of e.slots) {
+      let tr = tb.querySelector('tr[data-slot="' + sl.n + '"]');
+      if (!tr || tr.dataset.path !== (sl.path || "")) {          // a new archive in this thread: build the row
+        tr = h("tr", { "data-slot": sl.n, "data-path": sl.path || "" },
+          h("td", { class: "n" }, "#" + sl.n),
+          h("td", { class: sl.path ? "path" : "idle" }, sl.path || "idle"),
+          h("td", { class: "t" }), h("td", { class: "act", style: "text-align:right;width:1%" }));
+        const old = tb.querySelector('tr[data-slot="' + sl.n + '"]');
+        if (old) old.replaceWith(tr); else tb.append(tr);
+      }
+      // update in place so a click on Cancel is never lost to a refresh
+      tr.querySelector(".t").textContent = sl.path ? (sl.phase === "finishing" ? "finishing " : "") + dur(sl.elapsed) : "";
+      const act = tr.querySelector(".act");
+      const canCancel = !!sl.path && sl.phase !== "finishing" && !sl.cancel && e.state !== "stopping";
+      if (canCancel && !act.firstChild) act.append(h("button", {
+        class: "small", title: "Cancel this archive only - the other archives carry on",
+        onclick: async (ev) => { ev.target.disabled = true; try { await post("/api/cancel", { path: sl.path }); } catch (err) { banner("bad", err.message); } pollStatus(); },
+      }, "Cancel"));
+      if (!canCancel && act.firstChild) act.replaceChildren(sl.cancel ? h("span", { class: "muted small" }, "cancelling...") : "");
+    }
+    tb.querySelectorAll("tr[data-slot]").forEach((r) => { if (Number(r.dataset.slot) > e.slots.length) r.remove(); });
+  }
+
+  // failures
+  $("failCard").hidden = !e.failures.length;
+  renderWaiting(e.waiting || [], s);
+  const fl = $("fails"); fl.replaceChildren();
+  for (const f of e.failures) fl.append(h("div", { class: "fail" }, h("div", { class: "path" }, f.path), h("div", { class: "err" }, f.error)));
+}
+
+function appendLog(entries) {
+  if (!entries.length) return;
+  const box = $("log");
+  const atEnd = $("logFollow").checked || box.scrollTop + box.clientHeight >= box.scrollHeight - 30;
+  for (const x of entries) {
+    const ts = new Date(x.t * 1000).toLocaleTimeString();
+    box.append(h("div", { class: x.level }, h("span", { class: "ts" }, ts + "  "), x.msg));
+  }
+  while (box.childNodes.length > 600) box.firstChild.remove();
+  if (atEnd) box.scrollTop = box.scrollHeight;
+}
+
+$("logFollow").addEventListener("change", () => {
+  try { localStorage.setItem("ad.logFollow", $("logFollow").checked ? "1" : "0"); } catch (e) { /* ignore */ }
+  if ($("logFollow").checked) $("log").scrollTop = $("log").scrollHeight;
+});
+try { if (localStorage.getItem("ad.logFollow") === "0") $("logFollow").checked = false; } catch (e) { /* ignore */ }
+$("btnClearLog").addEventListener("click", async () => {
+  await post("/api/log/clear");
+  $("log").replaceChildren();
+});
+
+// ---------------------------------------------------------------- run buttons
+async function startRun() {
+  try { await post("/api/run"); pollStatus(); }
+  catch (e) { banner("bad", e.message); }
+}
+$("btnRun").addEventListener("click", () => startRun());
+// ---- one-off folder
+$("btnOne").addEventListener("click", () => { $("oneErr").hidden = true; $("dlgOne").showModal(); });
+$("oneCancel").addEventListener("click", () => $("dlgOne").close());
+bindCheck($("onePath"), $("oneStatus"));
+$("oneBrowse").addEventListener("click", () => pickFolder($("onePath").value || "/", (p) => { $("onePath").value = p; $("onePath").dispatchEvent(new Event("change")); }));
+async function startOne() {
+  $("oneErr").hidden = true;
+  try {
+    await post("/api/run-folder", { path: $("onePath").value.trim(), recursive: $("oneRec").checked });
+    $("dlgOne").close(); pollStatus();
+  } catch (e) { $("oneErr").textContent = e.message; $("oneErr").hidden = false; }
+}
+$("oneStart").addEventListener("click", () => startOne());
+$("btnStop").addEventListener("click", async () => { await post("/api/stop"); pollStatus(); });
+$("btnLogout").addEventListener("click", () => { location.href = "/logout"; });
+
+// ---------------------------------------------------------------- settings
+let current = null;
+
+function statusLine(info) {
+  if (!info) return null;
+  if (!info.exists) {
+    return h("div", { class: "missing" }, info.host_path
+      ? "This looks like a path on your Unraid server, not inside the container. Use the container path of your mapping instead - see the list of mapped folders below."
+      : "This folder does not exist inside the container. Choose one of the mapped folders below, or fix the path mapping in the Unraid container settings.");
+  }
+  const where = (info.mount ? " (inside " + info.mount + ")" : "") + (info.host ? " - on the server: " + info.host : "");
+  if (!info.readable) return h("div", { class: "missing" }, "The container cannot read this folder" + where + ".");
+  if (!info.writable) return h("div", { class: "warnline" }, "Read-only" + where + ": archives can be read but not renamed or deleted here. Set the mapping to Read/Write.");
+  return h("div", { class: "okline" }, "OK - readable and writable" + where);
+}
+
+// re-check a typed path against the container and show the result in `holder`
+function bindCheck(input, holder) {
+  let t = null, last = null, seq = 0;
+  const run = async () => {
+    const v = input.value.trim();
+    if (v === last) return;                 // nothing new: leave the line alone (no flicker / layout shift)
+    last = v;
+    const mine = ++seq;
+    if (!v) { holder.replaceChildren(); return; }
+    try {
+      const d = await api("/api/pathinfo?path=" + encodeURIComponent(v));
+      if (mine !== seq) return;             // a newer check is already running
+      const l = statusLine(d.info);
+      holder.replaceChildren(...(l ? [l] : []));   // swap in one step
+    } catch (e) { /* ignore */ }
+  };
+  input.addEventListener("input", () => { clearTimeout(t); t = setTimeout(run, 450); });
+  input.addEventListener("change", run);
+  run.prime = (v) => { last = v; };
+  return run;
+}
+
+function sourceRow(value, info) {
+  const input = h("input", { type: "text", placeholder: "/downloads" }); input.value = value || "";
+  const status = h("div", {});
+  const row = h("div", { class: "src" }, h("div", { class: "row" }, input,
+    h("button", { class: "small", onclick: () => pickFolder(input.value || "/", (p) => { input.value = p; input.dispatchEvent(new Event("change")); }) }, "Browse"),
+    h("button", { class: "small danger", onclick: () => row.remove() }, "Remove")), status);
+  const check = bindCheck(input, status);
+  const l = statusLine(info); if (l) { status.append(l); check.prime(input.value.trim()); }
+  return row;
+}
+
+function addSource(path) {
+  const have = [...$("sources").querySelectorAll("input")];
+  if (have.some((i) => i.value.trim() === path)) return;
+  const empty = have.find((i) => !i.value.trim());
+  if (empty) { empty.value = path; empty.dispatchEvent(new Event("change")); return; }
+  const row = sourceRow(path); $("sources").append(row);
+  row.querySelector("input").dispatchEvent(new Event("change"));
+}
+
+// ---- folders mapped into the container
+let mountList = [];
+const fmtBytes = (n) => n == null ? "" : n >= 1e12 ? (n / 1e12).toFixed(1) + " TB" : n >= 1e9 ? (n / 1e9).toFixed(0) + " GB" : (n / 1e6).toFixed(0) + " MB";
+
+let configDir = "/data", locSeq = 0;
+
+// Live view of the folders in use: built from what is typed in the form right now, not from the template.
+async function renderLocations() {
+  const box = $("locBox"); if (!box) return;
+  const mine = ++locSeq;
+  const dm = $("delete_mode").value;
+  const srcs = [...$("sources").querySelectorAll("input")].map((i) => i.value.trim()).filter(Boolean);
+  const rows = [["App data", configDir]];
+  for (const p of srcs) rows.push(["Scan", p]);
+  if (dm === "move") rows.push(["Move folder", $("move_dir").value.trim()]);
+  const infos = await Promise.all(rows.map(([, p]) => p
+    ? api("/api/pathinfo?path=" + encodeURIComponent(p)).then((r) => r.info).catch(() => null) : null));
+  const bins = dm === "recycle" ? await Promise.all(srcs.map((p) =>
+    api("/api/recycle?path=" + encodeURIComponent(p)).then((r) => r.info).catch(() => null))) : [];
+  if (mine !== locSeq) return;                     // a newer update is already on its way
+  const cells = [];
+  rows.forEach(([label, p], i) => {
+    const info = infos[i];
+    let val;
+    if (!p) val = h("span", { class: "na" }, "not set");
+    else if (!info) val = h("span", { class: "na" }, "checking...");
+    else if (!info.exists) val = h("span", { class: "na" }, "not mapped - this folder does not exist in the container");
+    else if (info.host) val = h("span", { class: "path" }, info.host);
+    else val = h("span", { class: "muted" }, "inside " + (info.mount || "the container") + " (server path not detectable)");
+    cells.push(h("span", {}, h("span", { class: "path" }, p || "-"), " ", h("span", { class: "muted small" }, label)), val);
+  });
+  bins.forEach((b) => {
+    if (!b) return;
+    const val = !b.ok ? h("span", { class: "na" }, "not reachable: " + b.why)
+      : h("span", {}, h("span", { class: "path" }, b.host || b.bin),
+          h("span", { class: "muted small" }, b.exists ? " - " + b.items + " item" + (b.items === 1 ? "" : "s") + " inside" : " - created on first use"));
+    cells.push(h("span", {}, h("span", { class: "path" }, b.bin || "-"), " ", h("span", { class: "muted small" }, "Recycle Bin")), val);
+  });
+  box.replaceChildren(...cells);
+}
+const refreshLoc = (() => { let t; return () => { clearTimeout(t); t = setTimeout(() => renderLocations().catch(() => {}), 350); }; })();
+for (const id of ["move_dir", "delete_mode"]) { $(id).addEventListener("input", refreshLoc); $(id).addEventListener("change", refreshLoc); }
+new MutationObserver(refreshLoc).observe($("sources"), { childList: true });
+$("sources").addEventListener("input", refreshLoc);
+$("sources").addEventListener("change", refreshLoc);
+
+async function loadMounts() {
+  const d = await api("/api/mounts");
+  mountList = d.mounts;
+  const box = $("mountsBox"); box.replaceChildren();
+  const data = d.mounts.filter((m) => !m.config);
+  box.append(h("h3", {}, "Where your folders are on the server"));
+  box.append(h("div", { class: "hostpaths", id: "locBox" }));
+  configDir = d.config_dir;
+  renderLocations();
+  box.append(h("h3", {}, "Folders mapped into this container"));
+  if (!data.length) {
+    box.append(h("div", { class: "banner warn" }, "No data folders are mapped into this container yet. In Unraid: Docker tab -> AutoDate -> Edit, set the Host Path of \"Folder to scan\" to the share you want scanned (the Container Path should be /downloads), press Apply, then reload this page."));
+    return;
+  }
+  box.append(h("div", { class: "hint", style: "margin-bottom:6px" }, "These are the container paths to use here. Everything you mapped in the Unraid template shows up in this list."));
+  for (const m of data) {
+    box.append(h("div", { class: "mrow" },
+      h("span", { class: "path" }, m.path),
+      m.host ? h("span", { class: "muted small", title: "Folder on your server" }, "= " + m.host) : "",
+      h("span", { class: "muted small" }, [fmtBytes(m.free) && fmtBytes(m.free) + " free", m.fstype].filter(Boolean).join(" - ")),
+      m.writable ? "" : h("span", { class: "badge" }, "read-only"),
+      h("button", { class: "small", onclick: () => addSource(m.path) }, "Add as source"),
+      h("button", { class: "small", title: "Deleted archives will be moved here instead of being deleted", onclick: () => {
+        $("delete_mode").value = "move"; syncMove();
+        $("move_dir").value = m.path; $("move_dir").dispatchEvent(new Event("change"));
+      } }, "Use as move folder")));
+  }
+}
+
+async function loadSettings() {
+  const d = await api("/api/settings");
+  current = d.settings;
+  const s = d.settings;
+  const src = $("sources"); src.replaceChildren();
+  for (const p of s.sources) src.append(sourceRow(p, d.sources_info[p]));
+  if (!s.sources.length) src.append(sourceRow(""));
+  for (const k of ["schedule_enabled", "run_on_start", "include_folders"]) $(k).checked = s[k];
+  for (const k of ["interval_minutes", "min_age_minutes", "outdated_years", "outdated_by", "rename_use", "delete_mode", "move_dir"]) $(k).value = s[k];
+  $("threads_in").value = s.threads;
+  $("exclude_dirs").value = s.exclude_dirs.join("\n");
+  const ms = $("moveStatus"); ms.replaceChildren(); const ml = s.move_dir ? statusLine(d.move_info) : null; if (ml) ms.append(ml);
+  recycleData = d.recycle || [];
+  renderRecycle();
+  syncMove();
+  loadMounts().catch(() => {});
+
+  $("btnLogout").hidden = !d.auth_enabled;
+  const sw = $("storeWarn"); sw.replaceChildren();
+  const st = d.storage;
+  if (!st.config_mapped) sw.append(h("div", { class: "banner bad" }, "The App data folder (/data) is not mapped to a folder on your server, so settings are lost every time the container is recreated (for example when you press Apply in Unraid). Edit the container and map App data to e.g. /mnt/user/appdata/autodate."));
+  if (d.problems.length) sw.append(h("div", { class: "banner warn" }, "Some saved values were invalid and were replaced by their defaults - check and save again: " + d.problems.join(" | ")));
+  $("storeInfo").textContent = st.source === "file"
+    ? "Settings file: " + st.path + " - last saved " + new Date(st.saved_at * 1000).toLocaleString()
+    : st.source === "unreadable" ? "Settings file " + st.path + " could not be read - showing defaults."
+    : "Nothing saved yet - these are the defaults. Press Save settings to store them in " + st.path + ".";
+  const warn = $("toolWarn"); warn.replaceChildren();
+  const t = d.tools, msgs = [];
+  if (!t.unzip && !t["7z"]) msgs.push("No ZIP tool found - .zip files cannot be read.");
+  if (!t.unrar && !t["7z"]) msgs.push("No RAR tool found - .rar files cannot be read.");
+  if (!t["7z"]) msgs.push("7-Zip is not installed - .7z files cannot be read.");
+  if (!t.tar) msgs.push("tar is not installed - tar files cannot be read.");
+  if (msgs.length) warn.append(h("div", { class: "banner warn" }, msgs.join(" ")));
+  if (!d.auth_enabled) warn.append(h("div", { class: "banner warn" }, "No password is set (UI_PASSWORD). Anyone who can reach this page can change settings, rename and delete archives."));
+}
+
+function syncMove() {
+  $("moveField").style.display = $("delete_mode").value === "move" ? "" : "none";
+  $("recycleInfo").style.display = $("delete_mode").value === "recycle" ? "" : "none";
+}
+let recycleData = [];
+function renderRecycle() {
+  const box = $("recycleInfo"); box.replaceChildren();
+  box.append(h("label", {}, "Recycle Bin"));
+  if (!recycleData.length) { box.append(h("div", { class: "hint" }, "Add a source folder to see where its Recycle Bin is.")); return; }
+  for (const r of recycleData) {
+    if (!r.ok) {
+      box.append(h("div", { class: "missing", style: "margin:0 0 4px" }, r.source + ": " + r.why));
+      continue;
+    }
+    const where = r.host ? r.host : r.bin;
+    const items = r.exists ? " - " + r.items + " item" + (r.items === 1 ? "" : "s") + " in it now" : " - created when the first file is moved there";
+    box.append(h("div", { class: "okline", style: "margin:0 0 4px" }, "From " + r.source + " to ", h("span", { class: "path" }, where), items));
+  }
+  box.append(h("div", { class: "hint" }, "Each share's .Recycle.Bin folder - the one the Unraid Recycle Bin plugin uses for files deleted over SMB, so you can browse and empty it from the plugin. Files keep their folder layout inside it. .Recycle.Bin folders are never scanned."));
+}
+$("delete_mode").addEventListener("change", syncMove);
+$("addSource").addEventListener("click", () => $("sources").append(sourceRow("")));
+bindCheck($("move_dir"), $("moveStatus"));
+$("browseMove").addEventListener("click", () => pickFolder($("move_dir").value || "", (p) => { $("move_dir").value = p; $("move_dir").dispatchEvent(new Event("change")); }));
+
+function collect() {
+  const num = (id) => parseInt($(id).value, 10);
+  return {
+    sources: [...$("sources").querySelectorAll("input")].map((i) => i.value.trim()).filter(Boolean),
+    schedule_enabled: $("schedule_enabled").checked, run_on_start: $("run_on_start").checked,
+    interval_minutes: num("interval_minutes"), threads: num("threads_in"),
+    min_age_minutes: num("min_age_minutes"), include_folders: $("include_folders").checked,
+    outdated_years: num("outdated_years"), outdated_by: $("outdated_by").value, rename_use: $("rename_use").value,
+    delete_mode: $("delete_mode").value, move_dir: $("move_dir").value.trim(),
+    exclude_dirs: $("exclude_dirs").value,
+  };
+}
+
+$("btnSave").addEventListener("click", async () => {
+  const err = $("settingsErr"); err.replaceChildren(); $("saveMsg").textContent = "";
+  try {
+    await post("/api/settings", collect());
+    await loadSettings();
+    $("saveMsg").textContent = running ? "Saved - applies from the next scan." : "Saved.";
+  } catch (e) {
+    $("saveMsg").textContent = "Not saved - see the problems listed at the top of this page.";
+    const list = (e.data && e.data.errors) || [e.message];
+    err.append(h("div", { class: "banner bad" }, list.map((x) => h("div", {}, x))));
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+});
+
+// ---------------------------------------------------------------- folder picker
+let pickCb = null, pickPath = "/";
+async function browse(path) {
+  const d = await api("/api/browse?path=" + encodeURIComponent(path));
+  pickPath = d.path;
+  const top = !!d.top;
+  $("dlgPath").textContent = top ? "Mapped folders" : d.path;
+  $("dlgOk").disabled = top;                          // nothing to select until a mapped folder is opened
+  const list = $("dlgList"); list.replaceChildren();
+  if (top) {
+    if (!d.dirs.length) list.append(h("div", { class: "missing" }, d.error || "No folders are mapped into this container. Add a Path in the Unraid template (Edit the container) first."));
+    for (const r of d.dirs) list.append(h("div", { onclick: () => browse(r) }, r + "/"));
+    return;
+  }
+  list.append(h("div", { onclick: () => browse(d.parent) }, d.parent === "" ? ".. (mapped folders)" : ".. (up)"));
+  for (const n of d.dirs) list.append(h("div", { onclick: () => browse((d.path === "/" ? "" : d.path) + "/" + n) }, n + "/"));
+  if (d.error) list.append(h("div", { class: "missing" }, d.error));
+}
+function pickFolder(start, cb) {
+  pickCb = cb;
+  const sc = $("dlgMounts"); sc.replaceChildren();
+  const data = mountList.filter((m) => !m.config);
+  if (data.length) {
+    sc.append(h("span", {}, "Mapped folders:"));
+    for (const m of data) sc.append(h("button", { class: "small", onclick: () => browse(m.path) }, m.path));
+  }
+  browse(start || "").catch(() => browse("")); $("dlg").showModal();
+}
+$("dlgCancel").addEventListener("click", () => $("dlg").close());
+$("dlgOk").addEventListener("click", () => { if (pickCb) pickCb(pickPath); $("dlg").close(); });
+
+// ---------------------------------------------------------------- history
+async function loadHistory() {
+  const d = await api("/api/history");
+  const tb = $("hist"); tb.replaceChildren();
+  if (!d.history.length) tb.append(h("tr", {}, h("td", { colspan: 9, class: "idle" }, "Nothing yet")));
+  for (const r of d.history) {
+    if (r.type === "delete" || r.type === "rename") {       // an action on selected archives
+      tb.append(h("tr", {},
+        h("td", {}, fmtTime(r.started_at)), h("td", {}, r.type === "delete" ? "delete" : "rename"),
+        h("td", {}, r.count + " archive" + (r.count === 1 ? "" : "s") + (r.failed ? ", " + r.failed + " refused or failed" : "")),
+        h("td", {}, "-"), h("td", {}, "-"), h("td", {}, r.failed || 0), h("td", {}, "-"),
+        h("td", {}, r.bytes ? fmtSize(r.bytes) : "-"), h("td", {}, dur(r.finished_at - r.started_at))));
+      continue;
+    }
+    const res = { completed: "Completed", stopped: "Stopped", error: "Failed" }[r.result] || r.result;
+    const row = h("tr", {},
+      h("td", {}, fmtTime(r.started_at)), h("td", {}, r.trigger),
+      h("td", {}, res + (r.message ? " - " + r.message : "")),
+      h("td", {}, r.found), h("td", {}, r.listed + (r.unchanged ? " (+" + r.unchanged + " unchanged)" : "")),
+      h("td", {}, r.failed + (r.cancelled ? " (+" + r.cancelled + " cancelled)" : "") + (r.skipped ? " (+" + r.skipped + " skipped)" : "")),
+      h("td", {}, r.outdated), h("td", {}, "-"),
+      h("td", {}, dur(r.finished_at - r.started_at)));
+    tb.append(row);
+    if (r.failures && r.failures.length) {
+      tb.append(h("tr", {}, h("td", { colspan: 9 }, h("details", {}, h("summary", { class: "small" }, r.failures.length + " failed archive(s)"),
+        r.failures.map((f) => h("div", { class: "fail" }, h("div", { class: "path" }, f.path), h("div", { class: "err" }, f.error)))))));
+    }
+  }
+}
+
+// ---------------------------------------------------------------- stats
+function fmtSize(n) {
+  if (!n) return "0 B";
+  const u = ["B", "KB", "MB", "GB", "TB", "PB"]; let i = 0;
+  while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
+  return (i === 0 ? n : +(n >= 100 ? n.toFixed(0) : n.toFixed(1))) + " " + u[i];
+}
+const fmtNum = (n) => (n || 0).toLocaleString();
+function fmtCompact(n) {
+  return n >= 1e6 ? (n / 1e6).toFixed(n >= 1e7 ? 0 : 1) + "M" : n >= 1e4 ? (n / 1e3).toFixed(0) + "K" : fmtNum(n);
+}
+function fmtDuration(sec) {
+  sec = Math.round(sec || 0);
+  if (sec < 60) return sec + "s";
+  if (sec < 3600) return Math.floor(sec / 60) + "m " + (sec % 60) + "s";
+  return Math.floor(sec / 3600) + "h " + Math.floor((sec % 3600) / 60) + "m";
+}
+const dayKey = (d) => d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+let statsData = null, statsMetric = "archives";
+try { statsMetric = localStorage.getItem("ad.statsMetric") || "archives"; if (!["archives", "entries", "renamed", "deleted"].includes(statsMetric)) statsMetric = "archives"; } catch (e) { /* ignore */ }
+
+async function loadStats() {
+  const d = await api("/api/stats");
+  statsData = d.stats;
+  renderStats();
+}
+
+function tile(label, value, sub) {
+  return h("div", { class: "tile" }, h("div", { class: "l" }, label), h("div", { class: "v" }, value), sub ? h("div", { class: "s" }, sub) : "");
+}
+
+function renderStats() {
+  const st = statsData, t = st.totals;
+  $("sHero").textContent = fmtNum(t.entries);
+  $("sHeroSub").textContent = "entries read in " + fmtNum(t.archives) + " archive" + (t.archives === 1 ? "" : "s");
+  const attempts = t.archives + t.failed;
+  const oldest = st.records.oldest_year;
+  $("sTiles").replaceChildren(
+    tile("Archives scanned", fmtNum(t.archives), t.bytes ? fmtSize(t.bytes) + " of archives" : ""),
+    tile("Outdated found", fmtNum(t.outdated), t.archives ? Math.round(100 * t.outdated / t.archives) + "% of the archives scanned" : ""),
+    tile("Oldest content seen", oldest ? String(oldest.value) : "-", oldest ? oldest.path.split("/").pop() : ""),
+    tile("Renamed", fmtNum(t.renamed), "archives renamed with the year of their contents"),
+    tile("Deleted", fmtNum(t.deleted), t.freed ? fmtSize(t.freed) + " freed" : ""),
+    tile("Where deleted archives went", fmtSize(t.freed),
+      [t.recycled ? fmtSize(t.recycled) + " to the Recycle Bin" : "", t.moved ? fmtSize(t.moved) + " to the move folder" : "",
+       t.removed ? fmtSize(t.removed) + " deleted permanently" : ""].filter(Boolean).join(", ") || "nothing deleted yet"),
+    tile("Success rate", attempts ? (100 * t.archives / attempts).toFixed(attempts > t.archives ? 1 : 0) + "%" : "-", fmtNum(t.failed) + " failed"),
+    tile("Scans run", fmtNum(t.runs), ""),
+    tile("Time reading", fmtDuration(t.seconds), ""));
+  $("sSince").textContent = "Counting since " + new Date(st.since * 1000).toLocaleDateString() + ". Statistics are kept in /data/stats.json and survive updates.";
+  document.querySelectorAll("#sMetric button").forEach((b) => b.classList.toggle("on", b.dataset.m === statsMetric));
+  renderChart();
+  renderTypes();
+  renderRecords();
+}
+
+function renderChart() {
+  const st = statsData, m = statsMetric;
+  const days = [];
+  const today = new Date(); today.setHours(12, 0, 0, 0);
+  for (let i = 29; i >= 0; i--) {
+    const d = new Date(today); d.setDate(today.getDate() - i);
+    const k = dayKey(d);
+    days.push({ d, k, v: st.days[k] || { archives: 0, entries: 0, renamed: 0, deleted: 0, failed: 0 } });
+  }
+  const label = { archives: "Archives scanned", entries: "Entries read", renamed: "Archives renamed", deleted: "Archives deleted" }[m];
+  $("sChartTitle").textContent = label + " - last 30 days";
+  const fmt = fmtCompact;
+  const max = Math.max(...days.map((x) => x.v[m] || 0));
+  // clean y ticks
+  const nice = (x) => { if (x <= 0) return 1; const p = Math.pow(10, Math.floor(Math.log10(x))); const f = x / p; return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 5 ? 5 : 10) * p; };
+  // clean y ticks: steps of 1/2/5 x 10^n (in KB/MB/GB units for data)
+  const unit = 1;
+  const sm = max / unit, step = max ? nice(sm / 4) : 1;
+  const nTicks = Math.max(1, Math.ceil(sm / step - 1e-9));
+  const top = (max ? nTicks * step * unit : 4);
+  const ticks = max ? nTicks : 4;
+  const W = Math.max(300, $("sChart").clientWidth || 900), H = 220, L = 56, B = 22, T = 8, R = 4;
+  const pw = W - L - R, ph = H - B - T, band = pw / days.length, bw = Math.min(24, band * 0.62);
+  const ns = "http://www.w3.org/2000/svg";
+  const el = (tag, attrs, text) => { const e = document.createElementNS(ns, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); if (text != null) e.textContent = text; return e; };
+  const svg = el("svg", { viewBox: `0 0 ${W} ${H}`, width: W, height: H, role: "img", "aria-label": label + " per day, last 30 days" });
+  for (let i = 0; i <= ticks; i++) {
+    const v = top * i / ticks, y = T + ph - ph * i / ticks;
+    svg.append(el("line", { class: "grid", x1: L, x2: W - R, y1: y, y2: y }));
+    svg.append(el("text", { class: "ax", x: L - 8, y: y + 4, "text-anchor": "end" }, fmt(Math.round(v))));
+  }
+  const tip = $("sTip"), box = $("sChart");
+  days.forEach((x, i) => {
+    const v = x.v[m] || 0, hgt = v ? Math.max(2, ph * v / top) : 0;
+    const cx = L + band * i + band / 2, x0 = cx - bw / 2, y0 = T + ph - hgt;
+    const r = Math.min(4, hgt, bw / 2);
+    const g = el("g", {});
+    const hit = el("rect", { class: "hit", x: L + band * i, y: T, width: band, height: ph });
+    g.append(hit);
+    if (hgt > 0) {   // rounded data-end, square at the baseline
+      g.append(el("path", { class: "col", d: `M${x0},${T + ph} V${y0 + r} Q${x0},${y0} ${x0 + r},${y0} H${x0 + bw - r} Q${x0 + bw},${y0} ${x0 + bw},${y0 + r} V${T + ph} Z` }));
+    }
+    if (i === 29 || (W >= 560 ? i % 5 === 4 : i % 10 === 9)) {
+      svg.append(el("text", { class: "ax", x: cx, y: H - 6, "text-anchor": "middle" },
+        i === 29 ? "today" : x.d.toLocaleDateString(undefined, { month: "short", day: "numeric" })));
+    }
+    hit.addEventListener("mouseenter", () => {
+      tip.replaceChildren(h("b", {}, x.d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })),
+        h("div", {}, fmtNum(x.v.archives) + " archives scanned, " + fmtNum(x.v.entries) + " entries"),
+        h("div", {}, fmtNum(x.v.renamed) + " renamed, " + fmtNum(x.v.deleted) + " deleted"),
+        x.v.failed ? h("div", { class: "muted" }, fmtNum(x.v.failed) + " failed") : "");
+      tip.style.display = "block";
+      const bx = box.getBoundingClientRect(), sx = bx.width / W;
+      let left = cx * sx + 12; if (left + tip.offsetWidth > bx.width) left = cx * sx - tip.offsetWidth - 12;
+      tip.style.left = Math.max(0, left) + "px"; tip.style.top = "10px";
+      const c = g.querySelector(".col"); if (c) c.classList.add("hover");
+    });
+    hit.addEventListener("mouseleave", () => { tip.style.display = "none"; const c = g.querySelector(".col"); if (c) c.classList.remove("hover"); });
+    svg.append(g);
+  });
+  box.querySelector("svg")?.remove();
+  box.prepend(svg);
+  $("sTable").replaceChildren(...days.slice().reverse().map((x) => h("tr", {},
+    h("td", {}, x.d.toLocaleDateString()), h("td", {}, fmtNum(x.v.archives)), h("td", {}, fmtNum(x.v.entries)),
+    h("td", {}, fmtNum(x.v.renamed)), h("td", {}, fmtNum(x.v.deleted)), h("td", {}, fmtNum(x.v.failed)))));
+}
+
+function renderTypes() {
+  const st = statsData, box = $("sTypes"); box.replaceChildren();
+  const rows = Object.entries(st.types).sort((a, b) => b[1] - a[1]);
+  const total = rows.reduce((a, r) => a + r[1], 0);
+  if (!rows.length) { box.append(h("div", { class: "muted small", style: "grid-column:1/-1" }, "Nothing scanned yet.")); return; }
+  const max = rows[0][1];
+  for (const [t, n] of rows) {
+    box.append(h("span", { class: "path" }, "." + t),
+      h("div", { class: "track" }, h("div", { class: "fill", style: "width:" + (100 * n / max) + "%" })),
+      h("span", { class: "n" }, fmtNum(n) + " (" + Math.round(100 * n / total) + "%) - " + fmtSize(st.type_bytes[t] || 0)));
+  }
+}
+
+function renderRecords() {
+  const st = statsData, r = st.records, box = $("sRecords"); box.replaceChildren();
+  const busiest = Object.entries(st.days).sort((a, b) => b[1].archives - a[1].archives)[0];
+  const name = (p) => h("span", { class: "path muted small", title: p }, p.split("/").pop());
+  const rows = [];
+  if (r.oldest_year) rows.push(["Oldest content", String(r.oldest_year.value), name(r.oldest_year.path)]);
+  if (r.largest) rows.push(["Largest archive", fmtSize(r.largest.value), name(r.largest.path)]);
+  if (r.most_entries) rows.push(["Most entries", fmtNum(r.most_entries.value), name(r.most_entries.path)]);
+  if (busiest && busiest[1].archives) rows.push(["Busiest day", fmtNum(busiest[1].archives) + " archives",
+    h("span", { class: "muted small" }, new Date(busiest[0] + "T12:00:00").toLocaleDateString() + " - " + fmtNum(busiest[1].entries) + " entries")]);
+  if (!rows.length) { box.append(h("div", { class: "muted small" }, "Records appear after the first scan.")); return; }
+  for (const [a, b, c] of rows) box.append(h("span", { class: "muted" }, a), h("b", {}, b), c);
+}
+
+document.querySelectorAll("#sMetric button").forEach((b) => b.addEventListener("click", () => {
+  statsMetric = b.dataset.m;
+  try { localStorage.setItem("ad.statsMetric", statsMetric); } catch (e) { /* ignore */ }
+  if (statsData) renderStats();
+}));
+let resetArmed = null;
+$("sReset").addEventListener("click", async () => {
+  if (!resetArmed) {
+    $("sReset").textContent = "Click again to reset everything";
+    resetArmed = setTimeout(() => { resetArmed = null; $("sReset").textContent = "Reset statistics"; }, 4000);
+    return;
+  }
+  clearTimeout(resetArmed); resetArmed = null; $("sReset").textContent = "Reset statistics";
+  await post("/api/stats/reset");
+  loadStats();
+});
+setInterval(() => { if ($("tab-stats").classList.contains("on")) loadStats().catch(() => {}); }, 10000);
+let resizeT = null;
+window.addEventListener("resize", () => { clearTimeout(resizeT); resizeT = setTimeout(() => { if (statsData && $("tab-stats").classList.contains("on")) renderChart(); }, 150); });
+
+// ---------------------------------------------------------------- appearance
+let uiSaveT = null;
+function syncModeBtn() {
+  const dark = Theme.mode.effective() === "dark";
+  $("btnMode").textContent = dark ? "☀" : "☾";
+  $("btnMode").title = dark ? "Switch to light mode" : "Switch to dark mode";
+  document.querySelectorAll("#tpMode button").forEach((b) => b.classList.toggle("on", b.dataset.v === Theme.mode.pref()));
+}
+function renderThemePanel() {
+  const look = Theme.look, m = Theme.mode.effective();
+  const box = $("tpThemes"); box.replaceChildren();
+  for (const t of Theme.THEMES) {
+    const p = t[m];
+    box.append(h("button", { class: "tp-card", "aria-pressed": String(t.id === look.theme), onclick: () => setLook({ theme: t.id }) },
+      h("span", { class: "tp-sw" }, ...[p.bg, p.surface, p.accent, p.text].map((c) => h("i", { style: "background:" + c }))), t.name));
+  }
+  document.querySelectorAll(".tpanel .seg[data-k]").forEach((sg) =>
+    sg.querySelectorAll("button").forEach((b) => b.classList.toggle("on", b.dataset.v === String(look[sg.dataset.k] ?? ""))));
+  $("tpRadius").value = look.radius;
+  $("tpRadiusV").textContent = look.radius + " px";
+  syncModeBtn();
+}
+function setLook(change) {
+  Theme.apply({ ...Theme.look, ...change });
+  renderThemePanel();
+  if (statsData && $("tab-stats").classList.contains("on")) renderChart();
+  clearTimeout(uiSaveT);
+  uiSaveT = setTimeout(async () => {
+    try { await post("/api/ui", Theme.look); $("tpMsg").textContent = "Saved"; setTimeout(() => { $("tpMsg").textContent = ""; }, 1500); }
+    catch (e) { $("tpMsg").textContent = "Not saved: " + e.message; }
+  }, 350);
+}
+$("btnTheme").addEventListener("click", () => {
+  const open = $("themePanel").hidden;
+  $("themePanel").hidden = !open; $("btnTheme").setAttribute("aria-expanded", String(open));
+  if (open) renderThemePanel();
+});
+$("tpClose").addEventListener("click", () => { $("themePanel").hidden = true; $("btnTheme").setAttribute("aria-expanded", "false"); });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("themePanel").hidden) $("tpClose").click(); });
+$("btnMode").addEventListener("click", () => { Theme.mode.toggle(); renderThemePanel(); if (statsData) renderChart(); });
+document.querySelectorAll("#tpMode button").forEach((b) => b.addEventListener("click", () => { Theme.mode.set(b.dataset.v); renderThemePanel(); }));
+document.querySelectorAll(".tpanel .seg[data-k] button").forEach((b) => b.addEventListener("click", () => setLook({ [b.parentElement.dataset.k]: b.dataset.v })));
+$("tpRadius").addEventListener("input", () => setLook({ radius: Number($("tpRadius").value) }));
+$("tpReset").addEventListener("click", () => setLook({ ...Theme.DEFAULTS }));
+window.addEventListener("ad-theme", syncModeBtn);
+api("/api/ui").then((d) => { Theme.apply(d.ui); syncModeBtn(); }).catch(() => {});
+syncModeBtn();
+
+// ---------------------------------------------------------------- go
+loadSettings().catch((e) => banner("bad", "Could not load settings: " + e.message));
+pollStatus();
+setInterval(pollStatus, 1000);
+</script>
+</body>
+</html>

@@ -1,0 +1,64 @@
+name: Sync template to Community Apps repo
+
+# After every successful image publish, stamps autodate.xml with the publish date, the build
+# number and the newest CHANGELOG.md entries (<Date> and <Changes>, shown in Community Applications)
+# and copies it to rcodehub/Unraid-CA-Apps (templates/autodate.xml).
+# Needs a repository secret named CA_REPO_TOKEN: a fine-grained personal access token with
+# "Contents: Read and write" on the Unraid-CA-Apps repository only.
+
+on:
+  workflow_run:
+    workflows: ["Build and publish image"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Check for the token
+        env:
+          CA_TOKEN: ${{ secrets.CA_REPO_TOKEN }}
+        run: |
+          if [ -z "$CA_TOKEN" ]; then
+            echo "::error::Repository secret CA_REPO_TOKEN is not set (fine-grained PAT with Contents read/write on rcodehub/Unraid-CA-Apps)."
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+        with:
+          repository: rcodehub/Unraid-CA-Apps
+          ref: main
+          token: ${{ secrets.CA_REPO_TOKEN }}
+          path: ca
+
+      - name: Stamp date, build and changes
+        env:
+          BUILD: ${{ github.event.workflow_run.run_number || 'manual' }}
+        run: |
+          cp autodate.xml ca/templates/autodate.xml
+          python3 .github/scripts/stamp_template.py ca/templates/autodate.xml CHANGELOG.md \
+            "$(TZ=America/New_York date +%Y-%m-%d)" "$BUILD" 4
+          python3 -c "import xml.dom.minidom as m; m.parse('ca/templates/autodate.xml')"
+
+      - name: Push to Unraid-CA-Apps
+        run: |
+          cd ca
+          if [ -z "$(git status --porcelain)" ]; then
+            echo "Template already up to date"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add templates/autodate.xml
+          git commit -m "Update autodate template (build ${{ github.event.workflow_run.run_number || 'manual' }}) from ${GITHUB_REPOSITORY}@$(git -C .. rev-parse --short HEAD)"
+          git push origin HEAD:main
