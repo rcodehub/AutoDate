@@ -423,41 +423,178 @@ def api_stop():
 
 
 # ---------------------------------------------------------------- archives (the index) and actions
-# TODO(web agent): implement these routes on top of the engine (index_query, index_get, delete_archives,
-# rename_archives, rescan - the engine agent builds those). Contract: see "API" in the spec. Until then they
-# answer 501. Keep: login required (the before_request hook covers them), json_body() for POSTs, `paths` must be
-# a list of at most engine_mod.ACTION_MAX_PATHS strings (else 400), non-object JSON is a 400.
-NOT_IMPLEMENTED = ({"error": "not implemented"}, 501)
+SORT_FIELDS = ("name", "folder", "archive_date", "oldest", "newest", "age_years", "files", "size")
+TYPE_FILTERS = ("", "zip", "rar", "7z", "tar")
+STATUS_FILTERS = ("", "ok", "failed", "encrypted")
+MAX_OFFSET, MAX_LIMIT, MAX_QUERY, MAX_PATH_LEN = 10_000_000, 500, 200, 4096
+
+
+def _bad(msg, code=400):
+    return jsonify(ok=False, error=msg), code
+
+
+def _flag(name, default=False):
+    """A 0/1 (or true/false) query flag. Returns (value, error text)."""
+    raw = request.args.get(name)
+    if raw is None or raw == "":
+        return default, None
+    low = raw.strip().lower()
+    if low in ("1", "true"):
+        return True, None
+    if low in ("0", "false"):
+        return False, None
+    return default, f"{name} must be 0 or 1"
+
+
+def _int_arg(name, default, lo, hi):
+    raw = request.args.get(name)
+    if raw is None or raw == "":
+        return default, None
+    try:
+        v = int(raw)
+    except ValueError:
+        return default, f"{name} must be a whole number"
+    if not lo <= v <= hi:
+        return default, f"{name} must be between {lo} and {hi}"
+    return v, None
+
+
+def _paths_from(body):
+    """The `paths` of an action request: a list of 1..ACTION_MAX_PATHS non-empty strings (duplicates dropped).
+    Returns (paths, error text)."""
+    paths = body.get("paths")
+    if not isinstance(paths, list):
+        return None, "paths must be a list of archive paths"
+    if not paths:
+        return None, "paths is empty - select at least one archive"
+    if len(paths) > engine_mod.ACTION_MAX_PATHS:
+        return None, f"too many paths (at most {engine_mod.ACTION_MAX_PATHS} per request)"
+    out, seen = [], set()
+    for p in paths:
+        if not isinstance(p, str) or not p or "\x00" in p or len(p) > MAX_PATH_LEN:
+            return None, "every path must be a non-empty string"
+        if p not in seen:
+            seen.add(p)
+            out.append(p)
+    return out, None
+
+
+def _preview_from(body):
+    """`preview` defaults to True (a dry run) and must be a real boolean when given."""
+    v = body.get("preview", True)
+    if not isinstance(v, bool):
+        return None, "preview must be true or false"
+    return v, None
+
+
+def _engine_call(fn, *args, **kw):
+    """Run an engine call; an engine that is not available yet answers 501 instead of a stack trace."""
+    try:
+        return fn(*args, **kw), None
+    except NotImplementedError as e:
+        return None, _bad(str(e) or "not implemented", 501)
 
 
 @app.route("/api/archives")
 def api_archives():
-    """TODO(web agent): GET ?sort=&desc=0|1&q=&outdated=0|1&type=&status=&offset=&limit= -> engine.index_query()."""
-    return NOT_IMPLEMENTED
+    """The Archives table: GET ?sort=&desc=0|1&q=&outdated=0|1&type=&status=&offset=&limit=."""
+    sort = request.args.get("sort", "name")
+    if sort not in SORT_FIELDS:
+        return _bad("sort must be one of " + ", ".join(SORT_FIELDS))
+    desc, err = _flag("desc")
+    if err:
+        return _bad(err)
+    outdated, err = _flag("outdated")
+    if err:
+        return _bad(err)
+    typ = request.args.get("type", "")
+    if typ not in TYPE_FILTERS:
+        return _bad("type must be zip, rar, 7z or tar")
+    status = request.args.get("status", "")
+    if status not in STATUS_FILTERS:
+        return _bad("status must be ok, failed or encrypted")
+    q = request.args.get("q", "").strip()
+    if len(q) > MAX_QUERY:
+        return _bad(f"q is too long (at most {MAX_QUERY} characters)")
+    offset, err = _int_arg("offset", 0, 0, MAX_OFFSET)
+    if err:
+        return _bad(err)
+    limit, err = _int_arg("limit", 200, 1, MAX_LIMIT)
+    if err:
+        return _bad(err)
+    res, bad = _engine_call(engine.index_query, sort=sort, desc=desc, q=q, outdated=outdated, type=typ,
+                            status=status, offset=offset, limit=limit, cfg=settings.load())
+    return bad or jsonify(res)
 
 
 @app.route("/api/archive")
 def api_archive():
-    """TODO(web agent): GET ?path= -> the full record including entries (404 / refused when not in the index)."""
-    return NOT_IMPLEMENTED
+    """One archive with its entries (loaded when a row is expanded). Only archives in the index."""
+    path = request.args.get("path", "")
+    if not path or "\x00" in path or len(path) > MAX_PATH_LEN:
+        return _bad("path is required")
+    rec, bad = _engine_call(engine.index_get, path)
+    if bad:
+        return bad
+    if not rec:
+        return _bad("That archive is not in the index (it may have been renamed, deleted or removed from disk) "
+                    "- refresh the list.", 404)
+    return jsonify(rec)
 
 
 @app.route("/api/archives/delete", methods=["POST"])
 def api_archives_delete():
-    """TODO(web agent): POST {paths, preview} -> engine.delete_archives(paths, settings.load(), preview)."""
-    return NOT_IMPLEMENTED
+    """POST {paths, preview} - preview (the default) changes nothing and says where each archive would go."""
+    body, bad = json_body()
+    if bad:
+        return bad
+    paths, err = _paths_from(body)
+    if err:
+        return _bad(err)
+    preview, err = _preview_from(body)
+    if err:
+        return _bad(err)
+    res, bad = _engine_call(engine.delete_archives, paths, settings.load(), preview=preview)
+    return bad or jsonify(dict(res, ok=True, preview=preview))
 
 
 @app.route("/api/archives/rename", methods=["POST"])
 def api_archives_rename():
-    """TODO(web agent): POST {paths, use: newest|oldest, preview} -> engine.rename_archives(...)."""
-    return NOT_IMPLEMENTED
+    """POST {paths, use: newest|oldest, preview} - append the year of the contents: name (2016).rar."""
+    body, bad = json_body()
+    if bad:
+        return bad
+    paths, err = _paths_from(body)
+    if err:
+        return _bad(err)
+    use = body.get("use")
+    if use is None:
+        use = settings.load()["rename_use"]
+    if use not in settings.YEAR_SOURCES:      # also rejects non-strings
+        return _bad("use must be newest or oldest")
+    preview, err = _preview_from(body)
+    if err:
+        return _bad(err)
+    res, bad = _engine_call(engine.rename_archives, paths, use, settings.load(), preview=preview)
+    return bad or jsonify(dict(res, ok=True, preview=preview, use=use))
 
 
 @app.route("/api/archives/rescan", methods=["POST"])
 def api_archives_rescan():
-    """TODO(web agent): POST {paths} -> engine.rescan(paths, settings.load())."""
-    return NOT_IMPLEMENTED
+    """POST {paths} - read just these archives again now."""
+    body, bad = json_body()
+    if bad:
+        return bad
+    paths, err = _paths_from(body)
+    if err:
+        return _bad(err)
+    res, bad = _engine_call(engine.rescan, paths, settings.load())
+    if bad:
+        return bad
+    if isinstance(res, (tuple, list)):                       # (ok, error text)
+        ok, why = res[0], (res[1] if len(res) > 1 else "")
+        return (jsonify(ok=True, count=len(paths)) if ok else _bad(why or "Could not rescan", 409))
+    return jsonify(dict(res, ok=True))
 
 
 @app.route("/api/history")
