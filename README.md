@@ -74,6 +74,8 @@ On a fresh install deleted archives are set to go to the **move folder** if `/tr
 
 Each source folder is walked once. For every archive (or multi-part set) AutoDate asks `unrar`, 7-Zip or `tar` for the **list** of entries with their stored dates; nothing is extracted and nothing is written to the scanned folders. The result is kept in `/data/index.json`, so unchanged archives are not read again on later scans, and archives that disappeared are dropped. An archive that cannot be read (damaged, missing part) is listed with the reason and left alone by scheduled scans until it changes; Run now tries it again.
 
+Scans and actions never overlap: while a delete, rename or rescan is running, **Run now** and scheduled scans wait (Run now says to try again in a moment), and while a scan is running the rename / delete preview asks you to wait.
+
 Dates are shown as stored in the archive (no time zone conversion). Entries without a usable date (for example the 1980-01-01 default of some zip tools) are shown as "unknown" and ignored for oldest / newest. Dates in the future are flagged. Archives whose headers are encrypted cannot be read and are flagged as encrypted.
 
 **Renaming** appends the content year: `name (YYYY).ext`, with every volume of a set renamed consistently so it still opens. An existing ` (YYYY)` at the end of the name is replaced. An archive is refused when it has no usable dates, when a target name already exists, or when the name would not change. A set is renamed all-or-nothing.
