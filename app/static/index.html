@@ -245,6 +245,7 @@ dialog::backdrop { background: rgba(0,0,0,.5); }
 .actrow:last-child { border-bottom: 0; }
 .actrow .nm { font-family: var(--mono); font-size: 12.5px; }
 .actrow .dir { color: var(--muted); font-size: 12px; }
+.actrow .sub { padding-left: 4px; }
 .actrow .arrow { color: var(--accent); font-weight: 600; margin: 0 4px; }
 .actrow.no .why { color: var(--bad); }
 .actrow .perm { color: var(--bad); font-weight: 700; }
@@ -1524,6 +1525,10 @@ async function actPreview() {
   for (const r of rs.slice(0, LIMIT)) list.append(actRow(r));
   if (rs.length > LIMIT) list.append(h("div", { class: "muted small", style: "padding:8px 0" }, "… and " + fmtNum(rs.length - LIMIT) + " more (all are included)."));
   const refused = rs.length - ok.length;
+  if (rs.length && rs.every((r) => r.reason === "a scan is running")) {
+    $("actSum").textContent = "A scan is running right now. Wait for it to finish (or stop it), then open this window again.";
+    $("actOk").disabled = true; return;
+  }
   if (act.kind === "rename") {
     $("actSum").textContent = fmtNum(ok.length) + " will be renamed" + (refused ? ", " + fmtNum(refused) + " refused" : "") + ". Nothing has changed yet.";
     $("actOk").textContent = "Rename " + fmtNum(ok.length) + " archive" + (ok.length === 1 ? "" : "s");
@@ -1544,8 +1549,12 @@ function actRow(r) {
   const head = [h("div", { class: "dir" }, dirName(r.path))];
   if (!r.ok) return h("div", { class: "actrow no" }, ...head, h("div", { class: "nm" }, baseName(r.path)), h("div", { class: "why" }, "Refused: " + (r.reason || "not allowed")));
   if (act.kind === "rename") {
-    const more = (r.renamed || []).length > 1 ? " (+" + ((r.renamed || []).length - 1) + " more file" + ((r.renamed || []).length === 2 ? "" : "s") + ")" : "";
-    return h("div", { class: "actrow" }, ...head, h("div", { class: "nm" }, baseName(r.path), h("span", { class: "arrow" }, "→"), baseName(r.new_path || ""), more));
+    const pairs = r.renamed || [];
+    const sub = pairs.slice(0, 8).map(([o, n]) => h("div", { class: "nm sub" }, baseName(o), h("span", { class: "arrow" }, "→"), baseName(n)));
+    if (pairs.length > 8) sub.push(h("div", { class: "muted small" }, "… and " + (pairs.length - 8) + " more files"));
+    return h("div", { class: "actrow" }, ...head,
+      pairs.length > 1 ? h("div", { class: "muted small" }, pairs.length + " files (the whole set is renamed together):") : "",
+      ...(sub.length ? sub : [h("div", { class: "nm" }, baseName(r.path), h("span", { class: "arrow" }, "→"), baseName(r.new_path || ""))]));
   }
   const k = actKind(r);
   const where = k === "recycle" ? h("span", {}, "→ Recycle Bin: ", h("span", { class: "nm" }, r.target || ""))
@@ -1555,13 +1564,20 @@ function actRow(r) {
 }
 async function actConfirm() {
   if (!act || act.busy) return;
-  act.busy = true; $("actOk").disabled = true; $("actCancel").disabled = true; $("actNote").textContent = "Working…";
+  act.busy = true; $("actOk").disabled = true; $("actCancel").disabled = true;
+  $("dlgAct").setAttribute("aria-busy", "true"); $("actOk").textContent = "Working…";
+  $("actNote").textContent = "Working - this can take a while for big archives. Please keep this window open.";
   const kind = act.kind;
   const body = { paths: act.paths, preview: false };
   if (kind === "rename") body.use = (document.querySelector('input[name="actUse"]:checked') || {}).value || "newest";
   let res;
   try { res = await post(kind === "rename" ? "/api/archives/rename" : "/api/archives/delete", body); }
-  catch (e) { act.busy = false; $("actCancel").disabled = false; $("actNote").textContent = "Failed: " + e.message; $("actOk").disabled = false; return; }
+  catch (e) {           // also a 409: "An action is running - try again in a moment"
+    act.busy = false; $("dlgAct").removeAttribute("aria-busy"); $("actCancel").disabled = false;
+    $("actNote").textContent = "Failed: " + e.message;
+    $("actOk").textContent = "Try again"; $("actOk").disabled = false; return;
+  }
+  $("dlgAct").removeAttribute("aria-busy");
   $("dlgAct").close();
   const rs = res.results || [], ok = rs.filter((r) => r.ok), bad = rs.filter((r) => !r.ok);
   for (const r of ok) { arSel.delete(r.path); arOpen.delete(r.path); }
@@ -1575,13 +1591,14 @@ async function actConfirm() {
 }
 $("actOk").addEventListener("click", actConfirm);
 $("actCancel").addEventListener("click", () => { $("dlgAct").close(); });
+$("dlgAct").addEventListener("cancel", (e) => { if (act && act.busy) e.preventDefault(); });   // Esc does not close it while working
 $("dlgAct").addEventListener("close", () => { if (act && !act.busy) act = null; else if (act) act = null; $("actCancel").disabled = false; });
 $("arRename").addEventListener("click", () => openAct("rename"));
 $("arDelete").addEventListener("click", () => openAct("delete"));
 $("arRescan").addEventListener("click", async () => {
   const paths = actPaths();
   if (!paths || !paths.length) return;
-  $("arRescan").disabled = true;
+  $("arRescan").disabled = true; $("arRescan").textContent = "Rescanning…";
   try {
     const res = await post("/api/archives/rescan", { paths });
     const rs = res.results || [], bad = rs.filter((r) => r.ok === false);
@@ -1589,7 +1606,7 @@ $("arRescan").addEventListener("click", async () => {
     arNote(bad.length ? "warn" : "ok", "Rescanned " + (rs.length ? rs.length - bad.length : paths.length) + " of " + (rs.length || paths.length) + " archive" + ((rs.length || paths.length) === 1 ? "" : "s") + (bad.length ? "; " + bad.length + " could not be rescanned:" : "."),
       bad.slice(0, 10).map((r) => baseName(r.path || "") + ": " + (r.reason || r.error || "failed")));
   } catch (e) { arNote("bad", "Rescan failed: " + e.message); }
-  $("arRescan").disabled = !arSel.size;
+  $("arRescan").textContent = "Rescan selected"; $("arRescan").disabled = !arSel.size;
   loadArchives();
 });
 // keep the table fresh while a scan is running
