@@ -183,9 +183,11 @@ class Scheduler(threading.Thread):
         else:
             self.next_run = last + cfg["interval_minutes"] * 60
         if time.time() >= self.next_run:
-            self._start_run_done = True
-            self.last_start = time.time()
-            engine.start(cfg, trigger="schedule")
+            # start() says no while an action (delete / rename / rescan) runs: do not record a run, try again
+            # on the next tick
+            if engine.start(cfg, trigger="schedule"):
+                self._start_run_done = True
+                self.last_start = time.time()
 
 
 scheduler = Scheduler()
@@ -363,6 +365,9 @@ def api_pathinfo():
     return jsonify(info=mounts.path_info(p, mounts.list_mounts(CONFIG_DIR)))
 
 
+BUSY_MSG = "An action is running - try again in a moment"
+
+
 @app.route("/api/run", methods=["POST"])
 def api_run():
     body, bad = json_body()
@@ -373,7 +378,8 @@ def api_run():
         return jsonify(ok=False, error="Add at least one source folder in Settings first."), 400
     if engine.running:
         return jsonify(ok=False, error="A scan is already running."), 409
-    engine.start(cfg, trigger="manual")
+    if not engine.start(cfg, trigger="manual"):
+        return jsonify(ok=False, error=BUSY_MSG), 409
     return jsonify(ok=True)
 
 
@@ -400,8 +406,9 @@ def api_run_folder():
     clean, errors = settings.validate(cfg, mapped=True)
     if errors:
         return jsonify(ok=False, error="; ".join(errors)), 400
-    engine.start(clean, trigger="one-off",
-                 oneoff={"path": path, "recursive": body.get("recursive", True) is not False})
+    if not engine.start(clean, trigger="one-off",
+                        oneoff={"path": path, "recursive": body.get("recursive", True) is not False}):
+        return jsonify(ok=False, error=BUSY_MSG), 409
     return jsonify(ok=True)
 
 

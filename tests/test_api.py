@@ -147,6 +147,35 @@ main.engine.delete_archives = lambda paths, cfg, preview=True: {"results": [{"pa
 r = c.post("/api/archives/delete", json={"paths": good, "preview": False})
 check("refusals reach the client", r.status_code == 200 and r.get_json()["results"][0]["reason"] == "a scan is running" and r.get_json()["count"] == 0)
 
+# --- busy: engine.start() says no while a delete / rename / rescan runs -> 409, nothing recorded
+starts = []
+main.engine.start = lambda cfg, trigger="manual", oneoff=None: starts.append(trigger) and False
+cur = _s.load()
+_s.save(dict(cur, sources=["/downloads"], schedule_enabled=True, interval_minutes=1, run_on_start=True))
+r = c.post("/api/run")
+check("run: 409 while an action runs", r.status_code == 409 and "An action is running" in r.get_json()["error"], (r.status_code, r.get_data(as_text=True)))
+tmpf = tempfile.mkdtemp(prefix="ad-api-folder-")
+main.mounts.inside_roots = lambda *a, **k: True
+r = c.post("/api/run-folder", json={"path": tmpf})
+check("run-folder: 409 while an action runs", r.status_code == 409 and "An action is running" in r.get_json()["error"], (r.status_code, r.get_data(as_text=True)))
+check("both routes did try to start", starts == ["manual", "one-off"], starts)
+_real_load = main.settings.load
+main.settings.load = lambda: dict(_real_load(), sources=["/downloads"], schedule_enabled=True, interval_minutes=1, run_on_start=False)
+sch = main.Scheduler()
+sch.started -= 3600
+del starts[:]
+sch.tick()
+check("scheduler: tries to start", starts == ["schedule"], starts)
+check("scheduler: a refused start is not recorded as a run", sch.last_start is None and not sch._start_run_done, (sch.last_start, sch._start_run_done))
+sch.tick()
+check("scheduler: retries on the next tick", starts == ["schedule", "schedule"], starts)
+main.engine.start = lambda cfg, trigger="manual", oneoff=None: starts.append(trigger) or True
+sch.tick()
+check("scheduler: records the run once it starts", sch.last_start is not None and sch._start_run_done)
+r = c.post("/api/run")
+check("run: ok when it starts", r.status_code == 200 and r.get_json()["ok"] is True)
+main.settings.load = _real_load
+
 # --- an engine that is not finished answers 501 json, never a stack trace
 def nope(*a, **k):
     raise NotImplementedError("later")
