@@ -46,8 +46,8 @@ def env_defaults():
         d.update(move_dir=move, delete_mode="move")
     elif d["sources"]:
         mnt = mounts.list_mounts(CONFIG_DIR)
-        if any(mounts.recycle_target(os.path.join(p, "x"), mnt)[1] for p in d["sources"]):
-            d.update(delete_mode="delete")      # a source's Recycle Bin can't be reached (second value = why not)
+        if all(mounts.recycle_target(os.path.join(p, "x"), mnt)[1] for p in d["sources"]):
+            d.update(delete_mode="delete")      # no source's Recycle Bin can be reached (second value = why not)
     return d
 
 

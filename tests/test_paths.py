@@ -93,6 +93,22 @@ check("first run: source is /downloads",
 check("first run: mapped trash folder becomes the move folder",
       seed["move_dir"] == proc and seed["delete_mode"] == "move", seed)
 check("first run: scheduling stays off", seed["schedule_enabled"] is False)
+# first-start rule without a /trash mapping: Recycle Bin when a source's share can be reached, else permanent delete
+_orig = (mounts.suggested_move_dir, mounts.recycle_target)
+mounts.suggested_move_dir = lambda *a, **k: ""
+mounts.recycle_target = lambda p_, m_: (os.path.join(root, ".Recycle.Bin"), None)
+check("first run: no trash folder + reachable Recycle Bin -> recycle", settings.env_defaults()["delete_mode"] == "recycle")
+mounts.recycle_target = lambda p_, m_: (None, "share root not reachable")
+check("first run: no trash folder + no Recycle Bin -> delete", settings.env_defaults()["delete_mode"] == "delete")
+check("first run: trash folder mapped wins", (setattr(mounts, "suggested_move_dir", _orig[0]), settings.env_defaults()["delete_mode"])[1] == "move")
+mounts.suggested_move_dir, mounts.recycle_target = _orig
+# lenient load: a bad new value is replaced by its default, the others are kept
+with open(os.path.join(cfg, "settings.json"), "w") as f_:
+    f_.write('{"sources": ["%s"], "outdated_years": "lots", "rename_use": "oldest", "delete_mode": "move", "move_dir": ""}' % dl)
+lenient = settings.load()
+check("lenient load: bad outdated_years -> default, rename_use kept", lenient["outdated_years"] == 5 and lenient["rename_use"] == "oldest", lenient)
+check("lenient load: move without folder -> default mode", lenient["delete_mode"] != "move", lenient)
+os.remove(os.path.join(cfg, "settings.json"))
 
 # API
 c = main.app.test_client()
@@ -137,13 +153,7 @@ for bad in ({"outdated_by": "middle"}, {"rename_use": "never"}, {"outdated_years
 check("removed extraction options are gone", not {"overwrite", "junk_patterns", "max_passes", "archive_mode", "junk_mode",
       "set_perms", "file_mode", "dir_mode", "chown_enabled", "uid", "gid"} & set(settings.DEFAULTS))
 
-# --- new routes are stubs for now (TODO(web agent)): 501 JSON, behind the same login
-for url in ("/api/archives", "/api/archive"):
-    r = c.get(url)
-    check(f"{url}: stub answers 501 json", r.status_code == 501 and r.get_json() == {"error": "not implemented"}, r.status_code)
-for url in ("/api/archives/delete", "/api/archives/rename", "/api/archives/rescan"):
-    r = c.post(url, json={"paths": []})
-    check(f"{url}: stub answers 501 json", r.status_code == 501 and r.get_json() == {"error": "not implemented"}, r.status_code)
+# (the archives routes are covered by tests/test_api.py)
 
 # --- JSON bodies that are not objects: 400, never 500
 for url in ("/api/settings", "/api/run", "/api/run-folder", "/api/cancel", "/api/ui"):
