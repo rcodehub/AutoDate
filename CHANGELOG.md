@@ -3,6 +3,7 @@
 Newest first. The latest entries are copied into the Unraid template (shown in Community Applications) each time an image is published.
 
 ### 2026-11-06
+- Opening an archive's file list no longer makes the page jump; it stays at the archive you opened.
 - First release of AutoDate.
 - Reads the original dates of the files inside zip, rar, 7z and tar archives (including multi-part sets) without extracting anything.
 - Archives tab with the archive date, oldest and newest content dates and age, with sorting, search, type and status filters, and highlighting of outdated archives (contents older than N years).
