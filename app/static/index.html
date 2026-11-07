@@ -1349,26 +1349,88 @@ function arRow(it) {
     h("td", { class: "r" }, fmtNum(files)),
     h("td", { class: "r" }, fmtSize(it.size)),
     h("td", {}, arBadges(it)));
-  const toggle = () => { if (arOpen.has(it.path)) arOpen.delete(it.path); else arOpen.add(it.path); arRender(); };
+  const toggle = () => {           // only this row's detail row is inserted/removed: nothing else is rebuilt
+    const before = tr.getBoundingClientRect().top, wrap = $("arWrap"), wt = wrap.scrollTop;
+    const nowOpen = !arOpen.has(it.path);
+    if (nowOpen) { arOpen.add(it.path); tr.after(arMakeDetail(it).tr); }
+    else { arOpen.delete(it.path); const d = arDet.get(it.path); if (d) d.tr.remove(); arDet.delete(it.path); }
+    caret.setAttribute("aria-expanded", String(nowOpen)); caret.textContent = nowOpen ? "▼" : "▶";
+    wrap.scrollTop = wt;
+    arHold(tr, before);
+    if (nowOpen) arRevealDetail(tr, arDet.get(it.path).box);
+  };
   tr.addEventListener("click", (e) => { if (!e.target.closest("input")) toggle(); });
   return tr;
 }
 
+// detail rows (keyed by archive path) survive re-renders, so an open file list keeps its content, its inner scroll and its sorting
+const arDet = new Map();
+let arLastKey = null;
+function arResetDetails() { arCache.clear(); arDet.clear(); }
+
+// scroll the window (and the table wrapper) so that row `tr` is at screen position `top` again
+function arHold(tr, top) {
+  if (!tr.isConnected) return;
+  const d = tr.getBoundingClientRect().top - top;
+  if (Math.abs(d) >= 1) window.scrollBy(0, d);
+  const wrap = $("arWrap");
+  if (wrap.scrollHeight > wrap.clientHeight + 1) {
+    const d2 = tr.getBoundingClientRect().top - top;
+    if (Math.abs(d2) >= 1) wrap.scrollTop += d2;
+  }
+}
+// make the start of a freshly opened detail visible without ever pushing the clicked row off the screen
+function arRevealDetail(tr, box) {
+  const vh = window.innerHeight, r = box.getBoundingClientRect();
+  const need = Math.min(r.bottom, r.top + 220) - (vh - 8);
+  if (need <= 0) return;
+  const hd = document.querySelector("header"), room = tr.getBoundingClientRect().top - (hd ? hd.offsetHeight : 0) - 8;
+  if (room > 0) window.scrollBy(0, Math.min(need, room));
+}
+function arMakeDetail(it) {
+  let d = arDet.get(it.path);
+  if (d) return d;
+  const box = h("div", { class: "detailbox" });
+  d = { tr: h("tr", { class: "detail" }, h("td", { colspan: 10 }, box)), box, st: { sort: "name", desc: false, shown: 1000 } };
+  arDet.set(it.path, d);
+  sizeDetail(box);
+  arLoadDetail(it, d);
+  return d;
+}
+
 function arRender() {
+  const key = JSON.stringify([ar.sort, ar.desc, ar.q, ar.outdated, ar.type, ar.status, ar.page]);
+  const keep = key === arLastKey;        // same view as before (refresh, select, action): keep the user's place
+  arLastKey = key;
+  // remember where the user is: the first row that is on screen, plus the inner scroll of every open detail
+  let anchor = null;
+  const hdH = (document.querySelector("header") || { offsetHeight: 0 }).offsetHeight;
+  if (keep) {
+    for (const tr of $("arBody").querySelectorAll("tr.ar")) {
+      const r = tr.getBoundingClientRect();
+      if (r.bottom > hdH) { anchor = { path: tr.title, top: r.top }; break; }
+    }
+  }
+  const wrap = $("arWrap"), wl = wrap.scrollLeft, wt = wrap.scrollTop;
+  const inner = new Map();
+  for (const [p, d] of arDet) { const eb = d.box.querySelector(".entrybox"); if (eb) inner.set(p, [eb.scrollTop, eb.scrollLeft]); }
+  for (const p of [...arDet.keys()]) if (!arOpen.has(p)) arDet.delete(p);
   arHead();
   const body = $("arBody"); body.replaceChildren();
   if (!ar.items.length) {
     body.append(h("tr", {}, h("td", { colspan: 10, class: "idle" },
       ar.summary && ar.summary.archives ? "No archive matches these filters." : "No archives yet - run a scan from the Status tab.")));
   }
+  const rowOf = new Map();
   for (const it of ar.items) {
-    body.append(arRow(it));
-    if (arOpen.has(it.path)) {
-      const box = h("div", { class: "detailbox" }, h("div", { class: "muted small" }, "Loading…"));
-      body.append(h("tr", { class: "detail" }, h("td", { colspan: 10 }, box)));
-      sizeDetail(box);
-      arLoadDetail(it, box);
-    }
+    const tr = arRow(it); rowOf.set(it.path, tr);
+    body.append(tr);
+    if (arOpen.has(it.path)) { const d = arMakeDetail(it); body.append(d.tr); sizeDetail(d.box); }
+  }
+  if (keep) {
+    wrap.scrollLeft = wl; wrap.scrollTop = wt;
+    for (const [p, v] of inner) { const d = arDet.get(p), eb = d && d.box.querySelector(".entrybox"); if (eb) { eb.scrollTop = v[0]; eb.scrollLeft = v[1]; } }
+    if (anchor && rowOf.has(anchor.path)) arHold(rowOf.get(anchor.path), anchor.top);
   }
   const all = $("arAll");
   if (all) {
@@ -1430,15 +1492,20 @@ function arNote(kind, text, lines) {
 }
 
 // the entries of one archive, loaded when its row is opened
-async function arLoadDetail(it, box) {
+async function arLoadDetail(it, d) {
+  const box = d.box, st = d.st;
   let rec = arCache.get(it.path);
   if (!rec) {
+    box.style.minHeight = "330px";       // reserve roughly the final height so what is below does not jump when the list arrives
+    box.replaceChildren(h("div", { class: "muted small" }, "Loading…"));
     try { rec = await api("/api/archive?path=" + encodeURIComponent(it.path)); arCache.set(it.path, rec); }
-    catch (e) { box.replaceChildren(h("div", { class: "missing" }, "Could not load the entries: " + e.message)); return; }
+    catch (e) { box.style.minHeight = ""; if (arDet.get(it.path) === d) box.replaceChildren(h("div", { class: "missing" }, "Could not load the entries: " + e.message)); return; }
+    if (arDet.get(it.path) !== d) return;
+    box.style.minHeight = "";
   }
-  if (!box.isConnected) return;
-  const st = { sort: "name", desc: false, shown: 1000 };
   const draw = () => {
+    const eb0 = box.querySelector(".entrybox"), sy = window.scrollY, ex = eb0 ? eb0.scrollTop : 0;
+    const fk = document.activeElement && box.contains(document.activeElement) ? document.activeElement.dataset.k : null;
     const ents = (rec.entries || []).slice();
     const key = { name: (e) => e.name.toLowerCase(), type: (e) => (e.folder ? 0 : 1), size: (e) => e.size || 0, date: (e) => e.date };
     const f = key[st.sort], dir = st.desc ? -1 : 1;
@@ -1448,7 +1515,7 @@ async function arLoadDetail(it, box) {
       return (x < y ? -1 : x > y ? 1 : 0) * dir;
     });
     const th = (k, l, r) => h("th", { class: r ? "r" : "", "aria-sort": st.sort === k ? (st.desc ? "descending" : "ascending") : "none" },
-      h("button", { class: "sortb", onclick: () => { if (st.sort === k) st.desc = !st.desc; else { st.sort = k; st.desc = false; } draw(); } },
+      h("button", { class: "sortb", "data-k": k, onclick: () => { if (st.sort === k) st.desc = !st.desc; else { st.sort = k; st.desc = false; } draw(); } },
         l, h("span", { class: "ar-ind" }, st.sort === k ? (st.desc ? " ▼" : " ▲") : "")));
     const rows = ents.slice(0, st.shown).map((e) => h("tr", { class: e.folder ? "fol" : "" },
       h("td", { class: "en" }, e.name + (e.folder && !e.name.endsWith("/") ? "/" : "")),
@@ -1467,6 +1534,10 @@ async function arLoadDetail(it, box) {
     box.replaceChildren(...meta, h("div", { class: "entrybox" }, h("table", { class: "entries" },
       h("thead", {}, h("tr", {}, th("name", "Name"), th("type", "Type"), th("size", "Size", true), th("date", "Date", true))),
       h("tbody", {}, rows.length ? rows : h("tr", {}, h("td", { colspan: 4, class: "idle" }, "No entries"))), ), more));
+    const eb1 = box.querySelector(".entrybox");
+    if (eb1) eb1.scrollTop = ex;
+    if (window.scrollY !== sy) window.scrollTo(window.scrollX, sy);
+    if (fk) { const b = box.querySelector('button[data-k="' + fk + '"]'); if (b) b.focus({ preventScroll: true }); }
   };
   draw();
 }
@@ -1581,7 +1652,7 @@ async function actConfirm() {
   $("dlgAct").close();
   const rs = res.results || [], ok = rs.filter((r) => r.ok), bad = rs.filter((r) => !r.ok);
   for (const r of ok) { arSel.delete(r.path); arOpen.delete(r.path); }
-  arCache.clear();
+  arResetDetails();
   const verb = kind === "rename" ? "Renamed" : "Deleted";
   const lines = bad.slice(0, 10).map((r) => baseName(r.path) + ": " + (r.reason || "refused"));
   if (bad.length > 10) lines.push("… and " + (bad.length - 10) + " more");
@@ -1602,7 +1673,7 @@ $("arRescan").addEventListener("click", async () => {
   try {
     const res = await post("/api/archives/rescan", { paths });
     const rs = res.results || [], bad = rs.filter((r) => r.ok === false);
-    arCache.clear();
+    arResetDetails();
     arNote(bad.length ? "warn" : "ok", "Rescanned " + (rs.length ? rs.length - bad.length : paths.length) + " of " + (rs.length || paths.length) + " archive" + ((rs.length || paths.length) === 1 ? "" : "s") + (bad.length ? "; " + bad.length + " could not be rescanned:" : "."),
       bad.slice(0, 10).map((r) => baseName(r.path || "") + ": " + (r.reason || r.error || "failed")));
   } catch (e) { arNote("bad", "Rescan failed: " + e.message); }
