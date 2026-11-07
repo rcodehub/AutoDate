@@ -306,6 +306,51 @@ check("query: item fields", {"outdated", "volumes", "files", "age_years", "archi
 check("query: outdated flag", [i["outdated"] for i in qeng.index_query(sort="newest", cfg=qcfg)["items"]][:3] == [True, True, False])
 check("query: bad paging values are tolerated", qeng.index_query(offset="x", limit="y", cfg=qcfg)["total"] == 6)
 
+# --- clearing the results: the button (all) and "Clear results before each scan" (full scan / one folder)
+cw = tempfile.mkdtemp(prefix="ad-clear-")
+cdata, csrc = os.path.join(cw, "data"), os.path.join(cw, "src")
+os.makedirs(cdata)
+make_zip(os.path.join(csrc, "a.zip"))
+make_zip(os.path.join(csrc, "f1", "b.zip"))
+make_zip(os.path.join(csrc, "f2", "c.zip"))
+ceng = Engine(os.path.join(cdata, "logs"), os.path.join(cdata, "history.json"))
+ccfg = base_cfg(sources=[csrc])
+run(ceng, ccfg)
+check("clear: three archives listed", len(ceng.index_load()) == 3)
+ceng._cancelled_mem = {os.path.join(csrc, "f1", "b.zip"): [1, 1]}
+ceng._save_remembered(ceng.cancelled_path, dict(ceng._cancelled_mem))
+s2 = run(ceng, ccfg)
+check("clear: setting off -> unchanged archives are not read again", s2["listed"] == 0 and s2["unchanged"] >= 2, s2)
+ok, n = ceng.clear_results()
+check("clear: button clears every result", ok and n == 3 and ceng.index_load() == {}, (ok, n))
+import json as _json
+with open(ceng.index_path) as _f:
+    check("clear: saved to index.json", _json.load(_f) == {})
+check("clear: cancelled marks forgotten", ceng._load_remembered(ceng.cancelled_path) == {})
+check("clear: archives on disk untouched", all(os.path.isfile(os.path.join(csrc, p)) for p in ("a.zip", "f1/b.zip", "f2/c.zip")))
+check("clear: logged", any("Results cleared" in str(m.get("msg", m)) for m in ceng.log_since(0)), ceng.log_since(0)[-2:])
+s3 = run(ceng, ccfg)
+check("clear: next scan lists everything again", s3["listed"] == 3 and len(ceng.index_load()) == 3, s3)
+s4 = run(ceng, base_cfg(sources=[csrc], clear_before_scan=True))
+check("clear before scan: every archive is read again", s4["listed"] == 3 and s4["unchanged"] == 0 and len(ceng.index_load()) == 3, s4)
+s5 = run(ceng, base_cfg(sources=[csrc], clear_before_scan=True), oneoff={"path": os.path.join(csrc, "f1"), "recursive": True})
+idx5 = ceng.index_load()
+check("clear before scan, one-off: only that folder is cleared and read again", s5["listed"] == 1 and len(idx5) == 3, s5)
+check("clear before scan, one-off: other folders keep their results", os.path.join(csrc, "f2", "c.zip") in idx5 and os.path.join(csrc, "a.zip") in idx5)
+# refused while a scan runs
+ceng._rescanning = True
+ok, why = ceng.clear_results()
+ceng._rescanning = False
+check("clear: refused while a scan runs", not ok and "scan is running" in why and len(ceng.index_load()) == 3, why)
+ceng._acting = 1
+ok, why = ceng.clear_results()
+ceng._acting = 0
+check("clear: refused while an action runs", not ok and "action" in why, why)
+check("clear: setting defaults off, saved as a boolean", settings.DEFAULTS["clear_before_scan"] is False
+      and settings.validate(dict(settings.DEFAULTS, clear_before_scan="yes"))[0]["clear_before_scan"] is True
+      and settings.validate(dict(settings.DEFAULTS, clear_before_scan="no"))[0]["clear_before_scan"] is False)
+shutil.rmtree(cw)
+
 # --- dates helpers
 check("parse_date", E.parse_date("2016-03-14 09:00:00.0000000") == "2016-03-14 09:00:00"
       and E.parse_date("2015-01-02 08:00:00,000000000") == "2015-01-02 08:00:00"

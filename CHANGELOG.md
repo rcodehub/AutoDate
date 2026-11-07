@@ -3,6 +3,8 @@
 Newest first. The latest entries are copied into the Unraid template (shown in Community Applications) each time an image is published.
 
 ### 2026-11-06
+- **Clear results…** button in Archives empties the list (click twice to confirm). No archive is changed or deleted.
+- New setting **Clear results before each scan**: every scan starts fresh and reads every archive again.
 - New AutoDate icon in Community Applications and the browser tab.
 - Opening an archive's file list no longer makes the page jump; it stays at the archive you opened.
 - First release of AutoDate.

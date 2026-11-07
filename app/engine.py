@@ -624,6 +624,11 @@ class Engine:
                         self.log("warn", f"Source folder not found, skipping: {s}")
             if not sources:
                 raise RuntimeError("No valid source folders configured")
+            if cfg.get("clear_before_scan"):
+                # a one-off job clears only its own folder; a full scan starts with an empty list
+                n = self._clear_index(sources[0] if oneoff else None)
+                self.log("info", f"Cleared the previous results before scanning ({n} archive(s)) - "
+                                 "every archive is read again")
 
             found = []
             self._walk_errors = set()
@@ -1244,6 +1249,47 @@ class Engine:
             if n:
                 self._index_dirty = True
         return n
+
+    def _clear_index(self, under=None):
+        """Forget the results (index records and cancelled marks) of every archive, or of those inside `under`.
+        Nothing on disk is touched except AutoDate's own files in /data. Returns how many records were removed."""
+        prefix = under.rstrip(os.sep) + os.sep if under else None
+        mine = lambda p: prefix is None or p.startswith(prefix)
+        with self.index_lock:
+            idx = self.index_load()
+            gone = [p for p in idx if mine(p)]
+            for p in gone:
+                del idx[p]
+            self._index_dirty = True
+        with self.cancel_file_lock:
+            mem = self._load_remembered(self.cancelled_path)
+            drop = [p for p in mem if mine(p)]
+            if drop:
+                for p in drop:
+                    del mem[p]
+                self._save_remembered(self.cancelled_path, mem)
+            self._cancelled_mem = mem
+        self.index_save(force=True)
+        return len(gone)
+
+    def clear_results(self, under=None):
+        """Clear the results now (the Clear results button). Refused while a scan or an action runs.
+        Returns (ok, count or error text)."""
+        with self.lock:
+            if self.running:
+                return False, "A scan is running - stop it or wait until it finishes"
+            if self._acting or self._rescanning:
+                return False, "An action is running - try again when it has finished"
+            self._acting += 1
+        try:
+            with self._action_lock:
+                n = self._clear_index(under)
+        finally:
+            with self.lock:
+                self._acting -= 1
+        where = f" for {under}" if under else ""
+        self.log("info", f"Results cleared{where}: {n} archive(s) removed from the list. Run a scan to list them again")
+        return True, n
 
     def _drop_unconfigured(self, cfg):
         """End of a full scan: forget records that are inside none of the configured sources (a source that was

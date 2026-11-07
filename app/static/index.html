@@ -350,6 +350,7 @@ dialog::backdrop { background: rgba(0,0,0,.5); }
         <button class="small danger" id="arDelete" disabled>Delete…</button>
         <button class="small" id="arRescan" disabled>Rescan selected</button>
         <button class="small" id="arClear" disabled>Clear selection</button>
+        <button class="small danger" id="arWipe" style="margin-left:auto" title="Empties this list so the next scan reads every archive again. No archive is changed or deleted.">Clear results…</button>
       </div>
       <div id="arMsg"></div>
       <div class="tablewrap" id="arWrap"><table id="arTable"><thead id="arHead"></thead><tbody id="arBody"></tbody></table></div>
@@ -401,6 +402,8 @@ dialog::backdrop { background: rgba(0,0,0,.5); }
       <h2>Dates &amp; outdated archives</h2>
       <div class="check"><input type="checkbox" id="include_folders"><div><label for="include_folders">Include folder dates in oldest / newest</label>
         <div class="hint">Off = only the dates of files count. Folder dates are always listed in the entries of an archive.</div></div></div>
+      <div class="check"><input type="checkbox" id="clear_before_scan"><div><label for="clear_before_scan">Clear results before each scan</label>
+        <div class="hint">Every scan starts with an empty list in Archives and reads every archive again, instead of only new or changed ones. Scans take longer. Scan folder… clears only that folder's results. No archive is changed. To clear once, use Clear results… in Archives.</div></div></div>
       <div class="two">
         <div class="field"><label for="outdated_years">Outdated if contents are older than (years)</label><input type="number" class="num" id="outdated_years" min="0" max="200">
           <div class="hint">Used for the highlighting and the "Outdated only" filter in Archives.</div></div>
@@ -889,7 +892,7 @@ async function loadSettings() {
   const src = $("sources"); src.replaceChildren();
   for (const p of s.sources) src.append(sourceRow(p, d.sources_info[p]));
   if (!s.sources.length) src.append(sourceRow(""));
-  for (const k of ["schedule_enabled", "run_on_start", "include_folders"]) $(k).checked = s[k];
+  for (const k of ["schedule_enabled", "run_on_start", "include_folders", "clear_before_scan"]) $(k).checked = !!s[k];
   for (const k of ["interval_minutes", "min_age_minutes", "outdated_years", "outdated_by", "rename_use", "delete_mode", "move_dir"]) $(k).value = s[k];
   $("threads_in").value = s.threads;
   $("exclude_dirs").value = s.exclude_dirs.join("\n");
@@ -949,7 +952,7 @@ function collect() {
     sources: [...$("sources").querySelectorAll("input")].map((i) => i.value.trim()).filter(Boolean),
     schedule_enabled: $("schedule_enabled").checked, run_on_start: $("run_on_start").checked,
     interval_minutes: num("interval_minutes"), threads: num("threads_in"),
-    min_age_minutes: num("min_age_minutes"), include_folders: $("include_folders").checked,
+    min_age_minutes: num("min_age_minutes"), include_folders: $("include_folders").checked, clear_before_scan: $("clear_before_scan").checked,
     outdated_years: num("outdated_years"), outdated_by: $("outdated_by").value, rename_use: $("rename_use").value,
     delete_mode: $("delete_mode").value, move_dir: $("move_dir").value.trim(),
     exclude_dirs: $("exclude_dirs").value,
@@ -1550,6 +1553,26 @@ $("arStatus").addEventListener("change", () => { ar.status = $("arStatus").value
 $("arPrev").addEventListener("click", () => { if (ar.page > 0) { ar.page--; loadArchives(); $("arWrap").scrollIntoView({ block: "nearest" }); } });
 $("arNext").addEventListener("click", () => { ar.page++; loadArchives(); });
 $("arClear").addEventListener("click", () => { arSel.clear(); arRender(); });
+let wipeArmed = null;
+const WIPE_LABEL = "Clear results…";
+function wipeDisarm() { clearTimeout(wipeArmed); wipeArmed = null; $("arWipe").textContent = WIPE_LABEL; }
+$("arWipe").addEventListener("click", async () => {
+  const n = (ar.summary && ar.summary.archives) || 0;
+  if (!wipeArmed) {
+    if (!n) { arNote("warn", "The list is already empty."); return; }
+    $("arWipe").textContent = "Click again to clear " + fmtNum(n) + (n === 1 ? " result" : " results");
+    wipeArmed = setTimeout(wipeDisarm, 4000);
+    return;
+  }
+  wipeDisarm();
+  $("arWipe").disabled = true;
+  try {
+    const r = await post("/api/archives/clear");
+    arSel.clear(); arResetDetails(); ar.page = 0;
+    arNote("ok", "Cleared " + fmtNum(r.cleared) + (r.cleared === 1 ? " result" : " results") + ". The archives themselves were not touched. Run a scan to list them again.");
+  } catch (e) { arNote("bad", "Could not clear the results: " + e.message); }
+  finally { $("arWipe").disabled = false; loadArchives(); }
+});
 $("arOut").checked = ar.outdated;
 
 // actions on the selected archives

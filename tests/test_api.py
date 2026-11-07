@@ -209,6 +209,17 @@ main.engine.index_query = nope
 r = c.get("/api/archives")
 check("not implemented -> 501 json", r.status_code == 501 and r.get_json()["error"] == "later")
 
+# --- Clear results
+main.engine.clear_results = lambda under=None: (True, 7)
+r = c.post("/api/archives/clear")
+check("clear: ok with an empty body", r.status_code == 200 and r.get_json() == {"ok": True, "cleared": 7}, r.get_json())
+r = c.post("/api/archives/clear", json=[1])
+check("clear: non-object JSON -> 400", r.status_code == 400)
+main.engine.clear_results = lambda under=None: (False, "A scan is running - stop it or wait until it finishes")
+r = c.post("/api/archives/clear", json={})
+check("clear: busy -> 409 with the reason", r.status_code == 409 and "scan is running" in r.get_json()["error"])
+check("clear: needs login", anon.post("/api/archives/clear").status_code == 401)
+
 # --- basic auth (scripts) also works on the new routes
 h = {"Authorization": "Basic " + base64.b64encode(b"u:pw").decode()}
 check("basic auth works", main.app.test_client().get("/api/archive?path=/downloads/a.rar", headers=h).status_code == 200)

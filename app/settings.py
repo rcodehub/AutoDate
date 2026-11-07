@@ -18,6 +18,7 @@ DEFAULTS = {
     "threads": 4,                     # archives listed in parallel
     "min_age_minutes": 5,             # ignore archives modified more recently than this (still downloading)
     "include_folders": False,         # folder dates also count towards oldest/newest content date
+    "clear_before_scan": False,       # empty the results list at the start of every scan (everything is read again)
     "outdated_years": 5,              # an archive is "outdated" when its contents are older than this many years ...
     "outdated_by": "newest",          # ... judged by its newest file or its oldest file: newest | oldest
     "rename_use": "newest",           # which content date gives the year in "name (YYYY).ext": newest | oldest
@@ -114,7 +115,7 @@ def _validate(data, mapped=True):
             err("sources", f"Source folder {p} is not inside a folder mapped into the container "
                            "(such as /downloads or /mnt/user)", p)
 
-    for k in ("schedule_enabled", "run_on_start", "include_folders"):
+    for k in ("schedule_enabled", "run_on_start", "include_folders", "clear_before_scan"):
         boolean(k)
     num("interval_minutes", 1, 525600, "Scan interval")
     num("threads", 1, 32, "Threads")

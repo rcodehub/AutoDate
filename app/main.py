@@ -622,6 +622,18 @@ def api_archives_rescan():
     return jsonify(dict(res, ok=any(r.get("ok") for r in rs) if rs else True))
 
 
+@app.route("/api/archives/clear", methods=["POST"])
+def api_archives_clear():
+    """POST {} - forget every result now (the archives themselves are not touched)."""
+    body, bad = json_body()
+    if bad:
+        return bad
+    ok, res = engine.clear_results()
+    if not ok:
+        return _bad(res, 409)
+    return jsonify(ok=True, cleared=res)
+
+
 @app.route("/api/history")
 def api_history():
     return jsonify(history=list(reversed(engine.history[-100:])))

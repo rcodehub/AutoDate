@@ -43,7 +43,7 @@ Only change the *Host Path* side of the paths. On first start `/downloads` is se
 ## Web UI
 
 - **Status** – next/last scan, progress, what each thread is reading (with a **Cancel** button per archive; scheduled scans skip it until it changes, Run now retries it), failed archives, folders waiting because their archives changed too recently and a live log. Buttons: **Run now**, **Scan folder…** (a one-off scan of any folder you pick, with or without sub-folders), **Stop**.
-- **Archives** – every scanned archive with the archive date, oldest and newest content date and how much older the contents are. Search, an **Outdated only** filter, type and status filters, sortable columns, and a click on a row shows the entries inside with their dates. Select archives to **Rename with year…**, **Delete…** or **Rescan**.
+- **Archives** – every scanned archive with the archive date, oldest and newest content date and how much older the contents are. Search, an **Outdated only** filter, type and status filters, sortable columns, and a click on a row shows the entries inside with their dates. Select archives to **Rename with year…**, **Delete…** or **Rescan**. **Clear results…** empties the list (click twice to confirm) so the next scan reads every archive again; no archive is touched.
 - **Settings** – all options below, with a folder picker and live checks that show each folder's real location on the server. Folder pickers only show the folders mapped into the container.
 - **History** – every scan and every rename / delete with counts.
 - **Stats** – lifetime totals (archives and entries read, outdated found, renamed, deleted, space freed and where it went), oldest content year seen, a 30-day chart and archive types.
@@ -60,6 +60,7 @@ Only change the *Host Path* side of the paths. On first start `/downloads` is se
 | Skip archives newer than | 5 min | Leaves archives that changed recently for a later scan, so downloads still in progress aren't read. 0 = off |
 | Folders to skip | `@eaDir`, `.Recycle.Bin`, `#recycle`, `.Trash*` | Folder names to ignore. `.Recycle.Bin` and `.autodate-*` are always skipped |
 | Include folder dates | off | Folder dates also count towards the oldest / newest content date (files only by default) |
+| Clear results before each scan | off | Every scan starts with an empty list and reads every archive again instead of only new or changed ones (slower). **Scan folder…** clears only that folder |
 | Outdated if contents are older than | 5 years | Used for the highlighting and the "Outdated only" filter |
 | Outdated means | newest file | The newest file is older than that, or the oldest file is |
 | Year used for renaming | newest file | Default in the rename dialog: the newest or the oldest file date gives the year |
