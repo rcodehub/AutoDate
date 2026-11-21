@@ -493,6 +493,21 @@ keep_dir = P("tied")
 scan(cfg_for(sources=[keep_dir]))
 check("full scan drops records outside every configured source", eng.index_get(os.path.join(gone_dir, "g.zip")) is None
       and eng.index_get(T("t2 (2014).zip")) is not None)
+# --- folders AutoDate creates (move folder / Recycle Bin) take the owner of the folder they are made in, so they
+# are not left root-owned (apps running as 99:100, e.g. Syncthing, can't change root-owned items)
+if os.geteuid() == 0:
+    own_dir = fresh("owner-test")
+    shutil.copy(P("tied", "t2 (2014).zip"), os.path.join(own_dir, "o.zip"))
+    age(own_dir)
+    scan(cfg_for(sources=[src]))
+    parent = os.path.join(trash, os.path.basename(src))     # already exists (made earlier in this test)
+    os.makedirs(parent, exist_ok=True)
+    os.chown(parent, 99, 100)
+    res = eng.delete_archives([os.path.join(own_dir, "o.zip")], cfg_for(), preview=False)["results"][0]
+    made = os.path.join(parent, "owner-test")
+    owners = {(os.stat(made).st_uid, os.stat(made).st_gid)} if os.path.isdir(made) else set()
+    check("created folders take the owner of the folder they are made in (99:100)",
+          res["ok"] and os.path.isfile(os.path.join(made, "o.zip")) and owners == {(99, 100)}, (res, owners))
 shutil.rmtree(work, ignore_errors=True)
 print("\nALL PASSED" if not FAILS else f"\nFAILED: {FAILS}")
 sys.exit(1 if FAILS else 0)

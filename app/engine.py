@@ -1952,8 +1952,13 @@ class Engine:
 
     def _apply_perm(self, path, is_dir):
         """Best effort: folders the app creates / files it moves stay usable over SMB (there are no permission
-        settings in AutoDate)."""
+        settings in AutoDate). A folder it creates also takes the owner of the folder it is made in (on Unraid
+        nobody:users = 99:100): the app runs as root, and root-owned folders can't have their permissions or dates
+        changed by apps running as 99:100 (e.g. Syncthing). Moved files keep their own owner."""
         try:
             os.chmod(path, DIR_MODE if is_dir else FILE_MODE)
+            if is_dir and os.geteuid() == 0:
+                st = os.stat(os.path.dirname(path.rstrip(os.sep)) or "/")
+                os.chown(path, st.st_uid, st.st_gid)
         except OSError as e:
             self._warn_once(("perm", type(e).__name__), f"Permission change failed ({path}): {e}")

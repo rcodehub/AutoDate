@@ -2,6 +2,9 @@
 
 Newest first. The latest entries are copied into the Unraid template (shown in Community Applications) each time an image is published.
 
+### 2026-11-21
+- Folders AutoDate creates in the move folder or the Recycle Bin now take the owner of the folder they are made in (on Unraid nobody:users, 99:100) instead of root, so apps running as 99:100 such as Syncthing don't report permission errors on them. Moved archives keep their own owner.
+
 ### 2026-11-06
 - **Clear results…** button in Archives empties the list (click twice to confirm). No archive is changed or deleted.
 - New setting **Clear results before each scan**: every scan starts fresh and reads every archive again.
